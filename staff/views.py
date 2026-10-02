@@ -19,8 +19,12 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
+from datetime import datetime
+
 from fleet import dashboard as dash
-from fleet import exports, review
+from fleet import exports, gpsservice, review
+from fleet.models import ImportBatch
+from fleet.storage import save_import_file
 from fleet.access import (
     MANAGER_GROUP,
     can_staff_access_vehicle,
@@ -51,6 +55,22 @@ def staff_required(view):
             return redirect(f"{login_url}?next={request.path}")
         if not (is_admin(user) or is_manager(user)):
             raise Http404  # posторонний сотрудник не видит ничего (ТЗ §4)
+        return view(request, *args, **kwargs)
+
+    return wrapped
+
+
+def admin_required(view):
+    """Допуск только администратору (ТЗ §1, §8: Excel загружает администратор)."""
+
+    @wraps(view)
+    def wrapped(request, *args, **kwargs):
+        user = request.user
+        if not user.is_authenticated:
+            login_url = reverse("admin:login")
+            return redirect(f"{login_url}?next={request.path}")
+        if not is_admin(user):
+            raise Http404
         return view(request, *args, **kwargs)
 
     return wrapped
@@ -331,6 +351,147 @@ def export_report_zip(request, report_id: int):
 
 
 # --- Закрытая раздача файлов сотруднику (ТЗ §9) -------------------------------
+
+# --- GPS-импорт из Excel (ТЗ §8) ---------------------------------------------
+
+def _mapping_from(request) -> dict:
+    return {
+        "vin": request.POST.get("map_vin", gpsservice.DEFAULT_MAP["vin"]).strip()
+        or gpsservice.DEFAULT_MAP["vin"],
+        "odometer": request.POST.get("map_odometer", gpsservice.DEFAULT_MAP["odometer"]).strip()
+        or gpsservice.DEFAULT_MAP["odometer"],
+        "date": request.POST.get("map_date", gpsservice.DEFAULT_MAP["date"]).strip(),
+    }
+
+
+def _parse_common_date(raw: str):
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.strptime(raw, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+@admin_required
+@require_http_methods(["GET"])
+def import_page(request):
+    return render(request, "staff/import.html", {"defaults": gpsservice.DEFAULT_MAP})
+
+
+@admin_required
+@require_http_methods(["GET"])
+def import_template(request):
+    blob = gpsservice.build_template()
+    resp = HttpResponse(
+        blob,
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    resp["Content-Disposition"] = 'attachment; filename="gps_template.xlsx"'
+    return resp
+
+
+@admin_required
+@require_http_methods(["POST"])
+def import_preview(request):
+    upload = request.FILES.get("file")
+    mapping = _mapping_from(request)
+    common_date = _parse_common_date(request.POST.get("common_date", ""))
+
+    ctx = {"defaults": gpsservice.DEFAULT_MAP, "mapping": mapping,
+           "common_date": request.POST.get("common_date", "")}
+
+    if upload is None:
+        messages.error(request, "Выберите файл .xlsx.")
+        return render(request, "staff/import.html", ctx)
+    if not upload.name.lower().endswith(".xlsx"):
+        messages.error(request, "Нужен .xlsx. Старый .xls пересохраните в .xlsx и загрузите снова.")
+        return render(request, "staff/import.html", ctx)
+    if upload.size > gpsservice.MAX_BYTES:
+        messages.error(request, "Файл больше 10 МБ.")
+        return render(request, "staff/import.html", ctx)
+
+    rel_path = save_import_file(upload.read())
+    result = gpsservice.build_preview(rel_path, mapping, common_date, timezone.localdate())
+    if result.fatal:
+        messages.error(request, result.fatal)
+        return render(request, "staff/import.html", ctx)
+
+    ctx.update({
+        "result": result,
+        "rel_path": rel_path,
+        "preview_rows": result.rows[:300],  # показываем первые 300 строк
+        "more": max(0, len(result.rows) - 300),
+    })
+    return render(request, "staff/import.html", ctx)
+
+
+@admin_required
+@require_http_methods(["POST"])
+def import_apply(request):
+    rel_path = request.POST.get("rel_path", "")
+    mapping = _mapping_from(request)
+    common_date = _parse_common_date(request.POST.get("common_date", ""))
+    if not rel_path:
+        messages.error(request, "Потерян файл предпросмотра. Загрузите заново.")
+        return redirect("staff_import")
+    try:
+        batch, result = gpsservice.apply_import(
+            rel_path, mapping, common_date, request.user, timezone.localdate()
+        )
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect("staff_import")
+
+    review.log_action(
+        request.user, "import.apply", batch,
+        new_value=str(result.counts()),
+    )
+    messages.success(
+        request,
+        f"Партия №{batch.id}: принято {result.ready}, на проверке {result.review}, "
+        f"дублей {result.duplicate}, ошибок {result.error}.",
+    )
+    return redirect("staff_import_batches")
+
+
+@admin_required
+@require_http_methods(["GET"])
+def import_batches(request):
+    batches = list(
+        ImportBatch.objects.select_related("author", "reverted_by").order_by("-created_at")
+    )
+    return render(request, "staff/import_batches.html", {"batches": batches})
+
+
+@admin_required
+@require_http_methods(["GET"])
+def import_errors(request, batch_id: int):
+    batch = get_object_or_404(ImportBatch, pk=batch_id)
+    errors = (batch.summary or {}).get("errors", [])
+    blob = gpsservice.errors_xlsx(errors)
+    resp = HttpResponse(
+        blob,
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    resp["Content-Disposition"] = f'attachment; filename="import_{batch.id}_errors.xlsx"'
+    return resp
+
+
+@admin_required
+@require_http_methods(["POST"])
+def batch_revert(request, batch_id: int):
+    batch = get_object_or_404(ImportBatch, pk=batch_id)
+    reason = request.POST.get("reason", "").strip()
+    if not reason:
+        messages.error(request, "Укажите причину отмены партии.")
+        return redirect("staff_import_batches")
+    gpsservice.revert_batch(batch, request.user, reason)
+    review.log_action(request.user, "import.revert", batch, reason=reason)
+    messages.success(request, f"Партия №{batch.id} отменена. Пробег и ТО пересчитаны.")
+    return redirect("staff_import_batches")
+
 
 @staff_required
 @require_http_methods(["GET"])

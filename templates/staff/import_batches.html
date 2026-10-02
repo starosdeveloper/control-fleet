@@ -1,0 +1,54 @@
+{% extends "staff/base.html" %}
+{% block title %}Партии импорта{% endblock %}
+{% block content %}
+
+<div class="toprow">
+  <h1>Партии импорта</h1>
+  <a class="btn secondary small" href="{% url 'staff_import' %}">← К импорту</a>
+</div>
+
+<div class="card">
+  <div class="scroll">
+  <table class="grid">
+    <thead>
+      <tr><th>№</th><th>Дата</th><th>Автор</th><th>Статус</th><th>Итог</th><th>Ошибки</th><th>Отмена</th></tr>
+    </thead>
+    <tbody>
+      {% for b in batches %}
+      <tr>
+        <td>{{ b.id }}</td>
+        <td>{{ b.created_at|date:"d.m.Y H:i" }}</td>
+        <td>{{ b.author.get_username|default:"—" }}</td>
+        <td>
+          {% if b.status == "active" %}<span class="pill green">применена</span>
+          {% else %}<span class="pill gray">отменена</span>{% endif %}
+        </td>
+        <td>
+          {% with c=b.summary.counts %}
+          {% if c %}принято {{ c.ready }}, проверка {{ c.review }}, дубли {{ c.duplicate }}, ошибки {{ c.error }}{% else %}—{% endif %}
+          {% endwith %}
+        </td>
+        <td>
+          {% if b.summary.errors %}<a href="{% url 'staff_import_errors' b.id %}">Excel ошибок</a>{% else %}—{% endif %}
+        </td>
+        <td>
+          {% if b.status == "active" %}
+          <form method="post" action="{% url 'staff_batch_revert' b.id %}">
+            {% csrf_token %}
+            <input class="reason" type="text" name="reason" placeholder="причина отмены" required>
+            <button class="btn small danger" type="submit">Отменить</button>
+          </form>
+          {% else %}
+          <span class="muted">{{ b.revert_reason }}</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7" class="muted">Партий импорта ещё не было.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+{% endblock %}

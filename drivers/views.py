@@ -81,11 +81,10 @@ def driver_home(request):
         .first()
     )
 
-    # Актуальный принятый пробег — самое новое по дате измерения среди принятых.
+    # Актуальный принятый пробег — самое новое по дате измерения среди принятых,
+    # без показаний из отменённых партий импорта (ТЗ §8).
     accepted = (
-        OdometerReading.objects.filter(
-            vehicle=vehicle, verification=OdometerReading.Verification.ACCEPTED
-        )
+        vehicle.accepted_reading_rows()
         .order_by("-measured_at", "-received_at")
         .first()
     )

@@ -99,6 +99,7 @@
     <span>
       {% if user.is_authenticated %}
         <a href="{% url 'staff_dashboard' %}">Дашборд</a>
+        {% if user.is_superuser %}&nbsp;·&nbsp; <a href="{% url 'staff_import' %}">Импорт GPS</a>{% endif %}
         &nbsp;·&nbsp; {{ user.get_username }}
         &nbsp;·&nbsp; <a href="/admin/">Админка</a>
         <form method="post" action="/admin/logout/" style="display:inline">

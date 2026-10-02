@@ -804,3 +804,196 @@ class StaffViewTests(_FleetMixin, TestCase):
         # m2 не владеет отчётом ТС №1 → 404.
         resp = self.client.get(reverse("staff_report_zip", args=[self.report.id]))
         self.assertEqual(resp.status_code, 404)
+
+
+# =============================================================================
+# Шаг 4 — GPS-импорт из Excel (ТЗ §8). Нормализация и классификация — против
+# литералов; интеграция — под критерий приёмки §11 «GPS импорт».
+# =============================================================================
+
+from datetime import datetime as _dt
+
+from .gpsimport import (
+    CellValue, RowCategory, classify_import_row, normalize_date, normalize_mileage,
+)
+from . import gpsservice
+from .models import ImportBatch
+
+
+class GpsNormalizeTests(TestCase):
+    """ТЗ §8: пробелы в числах, округление вниз, запрет формул и будущих дат."""
+
+    def test_mileage_spaces_and_int(self):
+        self.assertEqual(normalize_mileage("170 000").value, 170000)
+        self.assertEqual(normalize_mileage("170 000").value, 170000)  # неразрывный
+        self.assertEqual(normalize_mileage(170000).value, 170000)
+
+    def test_mileage_fraction_rounds_down_with_note(self):
+        cv = normalize_mileage("170000,7")
+        self.assertEqual(cv.value, 170000)
+        self.assertTrue(cv.note)  # отметка об округлении
+
+    def test_mileage_bad(self):
+        self.assertTrue(normalize_mileage("").error)
+        self.assertTrue(normalize_mileage("-5").error)
+        self.assertTrue(normalize_mileage("abc").error)
+        self.assertTrue(normalize_mileage("=A1+1").error)  # формула не выполняется
+
+    def test_date_variants_and_future(self):
+        today = date(2026, 10, 2)
+        self.assertEqual(normalize_date(_dt(2026, 9, 30, 8, 0), None, today).value, date(2026, 9, 30))
+        self.assertEqual(normalize_date("30.09.2026", None, today).value, date(2026, 9, 30))
+        self.assertEqual(normalize_date("2026-09-30", None, today).value, date(2026, 9, 30))
+        self.assertTrue(normalize_date("01.01.2999", None, today).error)  # будущее
+        self.assertTrue(normalize_date("", None, today).error)            # нет даты и нет общей
+        self.assertEqual(normalize_date("", date(2026, 9, 1), today).value, date(2026, 9, 1))
+
+
+class GpsClassifyTests(TestCase):
+    """ТЗ §8: категории строк. Порядок проверок — ошибка, дубль, конфликт, скачок."""
+
+    def _ok_cells(self):
+        return CellValue(170000, "", ""), CellValue(date(2026, 9, 30), "", "")
+
+    def test_unknown_vin_is_error(self):
+        m, d = self._ok_cells()
+        cat, reason = classify_import_row(False, m, d, set(), [], [], 3000, 1000)
+        self.assertEqual(cat, RowCategory.ERROR)
+        self.assertIn("VIN", reason)
+
+    def test_full_duplicate_skipped(self):
+        m, d = self._ok_cells()
+        cat, _ = classify_import_row(True, m, d, {(date(2026, 9, 30), 170000)}, [], [], 3000, 1000)
+        self.assertEqual(cat, RowCategory.DUPLICATE)
+
+    def test_same_date_conflict_to_review(self):
+        m, d = self._ok_cells()
+        cat, _ = classify_import_row(True, m, d, set(), [169000], [], 3000, 1000)
+        self.assertEqual(cat, RowCategory.REVIEW)
+
+    def test_clean_is_ready(self):
+        m, d = self._ok_cells()
+        cat, _ = classify_import_row(True, m, d, set(), [], [], 3000, 1000)
+        self.assertEqual(cat, RowCategory.READY)
+
+
+class _ImportFleetMixin(_FleetMixin):
+    def _xlsx(self, rows, headers=("VIN", "Пробег одометр", "Дата показания")):
+        from openpyxl import Workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.append(list(headers))
+        for r in rows:
+            ws.append(list(r))
+        import io as _io
+        buf = _io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
+
+
+@override_settings(PRIVATE_MEDIA_ROOT=tempfile.mkdtemp())
+class GpsImportIntegrationTests(_ImportFleetMixin, TestCase):
+    """ТЗ §11 «GPS импорт»: строка добавлена, неизвестный VIN в ошибках, конфликт
+    на проверке, повторный файл без дублей, отчёт водителя не засчитан."""
+
+    def setUp(self):
+        self.make_fleet()
+        # Принятое показание водителя — для конфликта за ту же дату.
+        OdometerReading.objects.create(
+            vehicle=self.vehicle, source=OdometerReading.Source.DRIVER,
+            value_km=170000, measured_at=date(2026, 9, 15),
+            verification=OdometerReading.Verification.ACCEPTED,
+        )
+        self.today = date(2026, 10, 2)
+        self.mapping = dict(gpsservice.DEFAULT_MAP)
+        self.blob = self._xlsx([
+            ("TRUCKFLEET0000001", "175 000", "2026-09-20"),  # ready
+            ("TRUCKFLEET0000001", 171000, "2026-09-15"),     # конфликт → review
+            ("NOSUCHVIN00000001", 100000, "2026-09-20"),     # неизвестный VIN → error
+        ])
+
+    def _save(self):
+        return gpsservice.save_import_file(self.blob)
+
+    def test_preview_categories(self):
+        res = gpsservice.build_preview(self._save(), self.mapping, None, self.today)
+        self.assertEqual(res.total, 3)
+        self.assertEqual(res.ready, 1)
+        self.assertEqual(res.review, 1)
+        self.assertEqual(res.error, 1)
+        self.assertTrue(any("VIN" in e["reason"] for e in res.errors))
+
+    def test_apply_writes_and_does_not_count_report(self):
+        rel = self._save()
+        reports_before = Report.objects.count()
+        batch, res = gpsservice.apply_import(rel, self.mapping, None, self.admin, self.today)
+        # Корректная строка добавлена (GPS, принято).
+        self.assertTrue(OdometerReading.objects.filter(
+            vehicle=self.vehicle, source=OdometerReading.Source.GPS,
+            value_km=175000, verification=OdometerReading.Verification.ACCEPTED,
+            import_batch=batch,
+        ).exists())
+        # Конфликт — на проверке.
+        self.assertTrue(OdometerReading.objects.filter(
+            vehicle=self.vehicle, source=OdometerReading.Source.GPS,
+            value_km=171000, verification=OdometerReading.Verification.PENDING,
+        ).exists())
+        # Импорт не создаёт отчётов.
+        self.assertEqual(Report.objects.count(), reports_before)
+
+    def test_reimport_no_duplicates(self):
+        rel1 = self._save()
+        gpsservice.apply_import(rel1, self.mapping, None, self.admin, self.today)
+        gps_after_first = OdometerReading.objects.filter(source=OdometerReading.Source.GPS).count()
+        rel2 = self._save()
+        res2 = gpsservice.build_preview(rel2, self.mapping, None, self.today)
+        self.assertEqual(res2.ready, 0)       # уже существует
+        self.assertEqual(res2.duplicate, 2)   # обе ранее записанные строки — дубли
+        gpsservice.apply_import(rel2, self.mapping, None, self.admin, self.today)
+        self.assertEqual(
+            OdometerReading.objects.filter(source=OdometerReading.Source.GPS).count(),
+            gps_after_first,  # ничего не добавилось
+        )
+
+    def test_revert_excludes_from_calc(self):
+        rel = self._save()
+        batch, _ = gpsservice.apply_import(rel, self.mapping, None, self.admin, self.today)
+        # До отмены принятая GPS-строка 175000 входит в расчёт.
+        before = set(self.vehicle.accepted_reading_rows().values_list("value_km", flat=True))
+        self.assertIn(175000, before)
+        gpsservice.revert_batch(batch, self.admin, "ошибочная выгрузка")
+        # После отмены записи партии из расчёта исключены, но остались в истории.
+        after = set(self.vehicle.accepted_reading_rows().values_list("value_km", flat=True))
+        self.assertNotIn(175000, after)
+        self.assertTrue(OdometerReading.objects.filter(import_batch=batch).exists())
+
+    def test_common_date_when_no_column(self):
+        blob = self._xlsx(
+            [("TRUCKFLEET0000001", 176000)], headers=("VIN", "Пробег одометр")
+        )
+        rel = gpsservice.save_import_file(blob)
+        mapping = {"vin": "VIN", "odometer": "Пробег одометр", "date": ""}
+        res = gpsservice.build_preview(rel, mapping, date(2026, 9, 25), self.today)
+        self.assertEqual(res.ready, 1)
+        self.assertEqual(res.rows[0].date_display, "25.09.2026")
+
+
+@override_settings(PRIVATE_MEDIA_ROOT=tempfile.mkdtemp())
+class GpsImportViewTests(_ImportFleetMixin, TestCase):
+    """ТЗ §1, §8: импорт доступен администратору, менеджеру — нет."""
+
+    def setUp(self):
+        self.make_fleet()
+        self.client = Client()
+
+    def test_import_page_admin_only(self):
+        self.client.force_login(self.m1)
+        self.assertEqual(self.client.get(reverse("staff_import")).status_code, 404)
+        self.client.force_login(self.admin)
+        self.assertEqual(self.client.get(reverse("staff_import")).status_code, 200)
+
+    def test_template_download(self):
+        self.client.force_login(self.admin)
+        resp = self.client.get(reverse("staff_import_template"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.content[:2], b"PK")

@@ -21,6 +21,15 @@ urlpatterns = [
         views.maintenance_decide,
         name="staff_maintenance_decide",
     ),
+    # GPS-импорт (§8), только администратор.
+    path("import/", views.import_page, name="staff_import"),
+    path("import/template.xlsx", views.import_template, name="staff_import_template"),
+    path("import/preview", views.import_preview, name="staff_import_preview"),
+    path("import/apply", views.import_apply, name="staff_import_apply"),
+    path("import/batches/", views.import_batches, name="staff_import_batches"),
+    path("import/<int:batch_id>/errors.xlsx", views.import_errors, name="staff_import_errors"),
+    path("import/<int:batch_id>/revert", views.batch_revert, name="staff_batch_revert"),
+
     path("file/<int:attachment_id>/", views.staff_file, name="staff_file"),
     path(
         "file/<int:attachment_id>/thumb/",

@@ -76,6 +76,17 @@ class Vehicle(models.Model):
         """Каталог файлов «ID — VIN» (ТЗ §9). ID неизменяем, VIN подставляется реальный."""
         return f"{self.id:06d}_{self.vin}"
 
+    def accepted_reading_rows(self):
+        """
+        Принятые показания, учитываемые в расчёте: без показаний из ОТМЕНЁННЫХ
+        партий импорта (ТЗ §8 — отменённые остаются в истории, но из расчёта
+        исключаются). Строки с `import_batch IS NULL` (водитель, ручной ввод)
+        остаются.
+        """
+        return self.readings.filter(verification="accepted").exclude(
+            import_batch__status="reverted"
+        )
+
 
 # --- Назначения ---------------------------------------------------------------
 

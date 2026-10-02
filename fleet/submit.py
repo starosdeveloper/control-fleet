@@ -75,9 +75,7 @@ def _classify_driver_reading(report: Report) -> tuple[str, str]:
     value = report.odometer_value_km
 
     prior = list(
-        OdometerReading.objects.filter(
-            vehicle=vehicle, verification=OdometerReading.Verification.ACCEPTED
-        ).values_list("value_km", "measured_at")
+        vehicle.accepted_reading_rows().values_list("value_km", "measured_at")
     )
     same_date_other = list(
         OdometerReading.objects.filter(

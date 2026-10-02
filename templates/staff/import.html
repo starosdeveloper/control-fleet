@@ -1,0 +1,99 @@
+{% extends "staff/base.html" %}
+{% block title %}GPS-импорт{% endblock %}
+{% block content %}
+
+<div class="toprow">
+  <h1>GPS-импорт показаний из Excel</h1>
+  <span>
+    <a class="btn secondary small" href="{% url 'staff_import_template' %}">Скачать шаблон</a>
+    <a class="btn secondary small" href="{% url 'staff_import_batches' %}">Партии</a>
+  </span>
+</div>
+
+<div class="card">
+  <h2>1. Выбрать файл и проверить</h2>
+  <p class="muted">
+    .xlsx, первый лист, заголовки в первой строке, до 10&nbsp;000 строк и 10&nbsp;МБ.
+    Старый .xls сначала пересохраните в .xlsx. Формулы не выполняются. Если в файле
+    нет колонки даты — укажите общую дату выгрузки.
+  </p>
+  <form method="post" action="{% url 'staff_import_preview' %}" enctype="multipart/form-data">
+    {% csrf_token %}
+    <div class="toolbar">
+      <div class="fld">
+        <label>Файл .xlsx</label>
+        <input type="file" name="file" accept=".xlsx" required>
+      </div>
+      <div class="fld">
+        <label>Колонка VIN</label>
+        <input type="text" name="map_vin" value="{{ mapping.vin|default:defaults.vin }}">
+      </div>
+      <div class="fld">
+        <label>Колонка пробега</label>
+        <input type="text" name="map_odometer" value="{{ mapping.odometer|default:defaults.odometer }}">
+      </div>
+      <div class="fld">
+        <label>Колонка даты (необяз.)</label>
+        <input type="text" name="map_date" value="{{ mapping.date|default:defaults.date }}">
+      </div>
+      <div class="fld">
+        <label>Общая дата (если нет колонки)</label>
+        <input type="text" name="common_date" value="{{ common_date }}" placeholder="ГГГГ-ММ-ДД">
+      </div>
+      <button class="btn" type="submit">Проверить</button>
+    </div>
+  </form>
+</div>
+
+{% if result %}
+<div class="card">
+  <h2>2. Результат проверки</h2>
+  <div class="tiles">
+    <div class="tile"><div class="n">{{ result.total }}</div><div class="l">Найдено строк</div></div>
+    <div class="tile green"><div class="n">{{ result.ready }}</div><div class="l">Готово к загрузке</div></div>
+    <div class="tile yellow"><div class="n">{{ result.review }}</div><div class="l">Требуется проверка</div></div>
+    <div class="tile gray"><div class="n">{{ result.duplicate }}</div><div class="l">Уже существует</div></div>
+    <div class="tile red"><div class="n">{{ result.error }}</div><div class="l">Ошибки</div></div>
+  </div>
+
+  <p class="muted" style="margin-top:12px">Предварительный просмотр данные не меняет.</p>
+
+  <form method="post" action="{% url 'staff_import_apply' %}">
+    {% csrf_token %}
+    <input type="hidden" name="rel_path" value="{{ rel_path }}">
+    <input type="hidden" name="map_vin" value="{{ mapping.vin }}">
+    <input type="hidden" name="map_odometer" value="{{ mapping.odometer }}">
+    <input type="hidden" name="map_date" value="{{ mapping.date }}">
+    <input type="hidden" name="common_date" value="{{ common_date }}">
+    <button class="btn" type="submit" {% if not result.ready and not result.review %}disabled{% endif %}>
+      Импортировать корректные и подозрительные
+    </button>
+  </form>
+
+  <h3>Строки (первые 300{% if more %}, ещё {{ more }}{% endif %})</h3>
+  <div class="scroll">
+  <table class="grid">
+    <thead><tr><th>№</th><th>VIN</th><th class="num">Пробег</th><th>Дата</th><th>Категория</th><th>Причина</th></tr></thead>
+    <tbody>
+      {% for r in preview_rows %}
+      <tr>
+        <td>{{ r.excel_row }}</td>
+        <td>{{ r.vin }}</td>
+        <td class="num">{{ r.mileage_display }}</td>
+        <td>{{ r.date_display }}</td>
+        <td>
+          {% if r.category.value == "ready" %}<span class="pill green">готово</span>
+          {% elif r.category.value == "review" %}<span class="pill yellow">на проверку</span>
+          {% elif r.category.value == "duplicate" %}<span class="pill gray">дубль</span>
+          {% else %}<span class="pill red">ошибка</span>{% endif %}
+        </td>
+        <td>{{ r.reason }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

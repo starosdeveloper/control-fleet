@@ -81,6 +81,18 @@ def open_abs(rel: str) -> Path:
     return _safe_join(rel)
 
 
+def save_import_file(data: bytes, ext: str = "xlsx") -> str:
+    """
+    Сохранить исходный файл импорта под серверным именем (ТЗ §8: «Сохранить
+    исходный файл»). Возвращает относительный путь.
+    """
+    rel = f"imports/{uuid.uuid4().hex}.{ext}"
+    target = _safe_join(rel)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
+    return rel
+
+
 def delete_rel(rel: str) -> None:
     """Удалить файл и его миниатюру, если есть. Молча, если файла нет."""
     for candidate in (rel, thumb_rel_path(rel)):

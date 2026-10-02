@@ -27,6 +27,7 @@ from .asof import accepted_reading_asof, confirmed_maint_asof
 from .maintenance import MaintStatus, MaintState, maintenance_state
 from .models import (
     Assignment,
+    ImportBatch,
     Maintenance,
     OdometerReading,
     Report,
@@ -189,11 +190,16 @@ def _build_row(
     manager = assignment.manager if assignment else None
     manager_name = manager.get_username() if manager else ""
 
-    # Принятые показания на срез (любой источник).
+    # Принятые показания на срез (любой источник), без отменённых партий (ТЗ §8).
     accepted = [
         (r.value_km, r.measured_at, r.source)
         for r in vehicle.readings.all()
         if r.verification == OdometerReading.Verification.ACCEPTED
+        and not (
+            r.import_batch_id
+            and r.import_batch
+            and r.import_batch.status == ImportBatch.Status.REVERTED
+        )
     ]
     chosen_reading = accepted_reading_asof(accepted, cut)
     if chosen_reading:
@@ -403,7 +409,10 @@ def _prefetched(vehicles: list[Vehicle]) -> list[Vehicle]:
                     "manager_assignments__manager"
                 ),
             ),
-            "readings",
+            Prefetch(
+                "readings",
+                queryset=OdometerReading.objects.select_related("import_batch"),
+            ),
             "maintenances",
             Prefetch("reports", queryset=Report.objects.prefetch_related("attachments")),
         )

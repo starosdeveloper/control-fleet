@@ -12,7 +12,7 @@ the server. Timezone `Europe/Moscow`. See [`docs/SPEC.md`](docs/SPEC.md) for the
 data contracts and [`docs/ROADMAP.md`](docs/ROADMAP.md) (Russian) for stage
 criteria and what is still open.
 
-## Current state — Stages 1–3 done
+## Current state — Stages 1–3 done, Stage 4 GPS import done
 
 What works and is proven on a live server:
 
@@ -60,8 +60,24 @@ What works and is proven on a live server:
   completed month on the last day of that month — history is never recomputed by
   today's mileage. Every page, operation and download is access-checked server-side.
 
-Stage 4 (GPS Excel import, mass fleet onboarding, deployment) is scaffolded in the
-models but not yet implemented. See the roadmap.
+- **GPS odometer import from Excel (§8)**, admin-only at `/staff/import/`: downloadable
+  template; column mapping for VIN / odometer / date (a common upload date when the
+  file has no date column); `.xlsx`, first sheet, header row, ≤10 000 rows and ≤10 MB;
+  formulas are not evaluated (a formula cell is an error). A preview that changes
+  nothing classifies every row as ready / needs-review / already-exists / error
+  (spaces in numbers allowed, fractional km floored with a note; future dates,
+  negatives, non-numeric and unknown VINs are errors; different readings for one VIN
+  on one date go to review; a full VIN+date+mileage+source duplicate is skipped).
+  Apply is atomic (a write error rolls the whole batch back); the batch stores the
+  source file, author, date and summary; re-uploading the same file creates no
+  duplicates; errors download as an Excel with the source row number and reason. A
+  batch can be reverted with a reason — its readings stay in history but drop out of
+  the mileage/maintenance calculation. Import never creates photos, confirms
+  maintenance or marks a monthly report done; driver and GPS readings never overwrite
+  each other.
+
+Stage 4 still open: mass fleet onboarding via Excel (§7) and deployment (domain,
+HTTPS, daily backups with restore test, pilot) — see the roadmap.
 
 ## Quick start (local development)
 
@@ -102,9 +118,9 @@ Automatic checks are mandatory for the maintenance calc, access rights and login
 Last real run:
 
 ```
-Found 72 test(s).
+Found 87 test(s).
 System check identified no issues (0 silenced).
-Ran 72 tests in 3.739s
+Ran 87 tests in 4.668s
 OK
 ```
 
@@ -187,6 +203,37 @@ correct POST: HTTP 302 -> http://127.0.0.1:8111/staff/vehicle/1/
 audit: reading.correct | 155000 км -> 156000 км | фото читается как 156000 | admin
 ```
 
+### Live server check — GPS import (§8)
+
+Raw output from a running instance (admin, demo data):
+
+```
+admin login (next=/staff/import/): 302
+template.xlsx: HTTP 200 magic=504b (PK)
+
+preview of a 3-row file (VIN5 ok, VIN5 same-date conflict, unknown VIN):
+   3  Найдено строк
+   1  Готово к загрузке
+   1  Требуется проверка
+   0  Уже существует
+   1  Ошибки
+rel_path token: imports/2df28c61…​.xlsx
+
+apply: 302 -> /staff/import/batches/
+DB after apply:
+  batch 1 status active summary.counts {'total': 3,'ready': 1,'review': 1,'duplicate': 0,'error': 1}
+  reading 120000 gps accepted
+  reading 125000 gps pending | конфликт за дату: есть принятое 120000 км, во вводе 125000 км
+errors.xlsx (HTTP 200): («№ строки», 'VIN', 'Значение', 'Причина'); (4, 'NOSUCHVIN00000001', '100000', 'неизвестный VIN')
+
+re-upload same file: 0 готово / 0 проверка / 2 дубля / 1 ошибка   (no duplicates created)
+
+revert batch 1 (reason "ошибочная выгрузка"): 302
+  VIN5 accepted-in-calc: []            # excluded from calculation
+  VIN5 history: [(125000,'pending'), (120000,'accepted')]   # kept in history
+audit: import.apply {…} ; import.revert | ошибочная выгрузка
+```
+
 ## Project layout
 
 ```
@@ -207,6 +254,8 @@ fleet/               core domain
   dashboard.py       reporting fleet, indicators, control-table rows (§7)
   review.py          staff review of disputed readings/maintenance + audit (§6, §7)
   exports.py         filtered table → .xlsx, report → .zip (§7)
+  gpsimport.py       GPS row parse + classify (pure, host-tested) (§8)
+  gpsservice.py      .xlsx read, preview, atomic apply, batch revert (§8)
   admin.py           raw back office, manager-scoped querysets
   management/commands/seed_demo.py
   tests.py
@@ -214,11 +263,11 @@ drivers/             driver cabinet
   views.py           login, session, home, protected file views
   report_views.py    four-screen report flow (§5)
   session.py ratelimit.py forms.py
-staff/               staff cabinet (§7)
-  views.py           dashboard, control table, VIN card, review, exports, files
+staff/               staff cabinet (§7, §8)
+  views.py           dashboard, control table, VIN card, review, exports, GPS import
   urls.py
 templates/drivers/   mobile-first templates (≥360px, Russian)
-templates/staff/     staff cabinet templates (dashboard, VIN card, Russian)
+templates/staff/     staff cabinet templates (dashboard, VIN card, import, Russian)
 docs/                SPEC.md (contracts), ROADMAP.md (stages, Russian)
 ```
 
