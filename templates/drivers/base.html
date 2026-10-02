@@ -62,7 +62,52 @@
     dl div:last-child { border-bottom: none; }
     dt { color: var(--muted); }
     dd { margin: 0; text-align: right; font-weight: 600; }
+
+    .steps { display: flex; gap: 6px; margin: 0 0 16px; }
+    .steps span {
+      flex: 1; height: 6px; border-radius: 3px; background: var(--line);
+    }
+    .steps span.on { background: var(--accent); }
+
+    textarea {
+      width: 100%; padding: 12px; font-size: 16px; border: 1px solid var(--line);
+      border-radius: 10px; min-height: 96px; resize: vertical;
+    }
+    .radios label { display: flex; align-items: center; gap: 10px; font-weight: 500;
+      padding: 12px; border: 1px solid var(--line); border-radius: 10px; margin: 0 0 8px; }
+    .radios input { width: 20px; height: 20px; }
+
+    .slot { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin: 0 0 12px; }
+    .slot.filled { border-color: var(--green); }
+    .slot .cap { font-weight: 600; margin: 0 0 8px; display: flex; justify-content: space-between; }
+    .slot .cap .ok { color: var(--green); font-size: 14px; }
+    .slot .cap .need { color: var(--red); font-size: 14px; }
+    .thumb { width: 100%; max-height: 220px; object-fit: contain; border-radius: 8px;
+      background: #f0f0f0; display: block; margin: 0 0 8px; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .grid2 .slot { margin: 0; }
+    .filebtn {
+      display: block; text-align: center; padding: 12px; border: 1px dashed var(--accent);
+      border-radius: 10px; color: var(--accent); font-weight: 600; cursor: pointer;
+    }
+    .filebtn input { display: none; }
+    .rowbtns { display: flex; gap: 12px; margin-top: 8px; }
+    .rowbtns button, .rowbtns .btn { flex: 1; }
+    .linkdel { background: none; border: none; color: var(--red); font-size: 14px;
+      padding: 0; width: auto; display: inline; cursor: pointer; }
+    .check-list { margin: 0; padding-left: 20px; color: var(--red); }
+    .check-ok { color: var(--green); font-weight: 600; }
   </style>
+  <script>
+    // Отправить форму сразу после выбора файла (ход загрузки показывает браузер).
+    document.addEventListener("change", function (e) {
+      if (e.target.matches('input[type=file][data-autosubmit]')) {
+        var btn = e.target.closest("form").querySelector('[data-submitlabel]');
+        if (btn) { btn.textContent = "Загрузка…"; btn.disabled = true; }
+        e.target.closest("form").submit();
+      }
+    });
+  </script>
 </head>
 <body>
   {% block header %}{% endblock %}

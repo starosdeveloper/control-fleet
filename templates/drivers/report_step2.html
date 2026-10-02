@@ -1,0 +1,58 @@
+{% extends "drivers/base.html" %}
+{% block title %}Фотографии ТС{% endblock %}
+
+{% block header %}
+<header class="app">
+  <span class="vin">{{ vehicle.vin }}</span>
+  <a href="{% url 'driver_home' %}" class="btn secondary" style="width:auto;padding:8px 12px;font-size:14px;background:transparent;border:1px solid #fff;color:#fff">Кабинет</a>
+</header>
+{% endblock %}
+
+{% block content %}
+<div class="steps"><span class="on"></span><span class="on"></span><span></span></div>
+
+<form method="post" enctype="multipart/form-data">
+  {% csrf_token %}
+  <div class="card">
+    <h2>Четыре ракурса тягача</h2>
+    <p class="hint">Все четыре обязательны.</p>
+    <div class="grid2">
+      {% for value, label, a in view_slots %}
+      <div class="slot {% if a %}filled{% endif %}">
+        <div class="cap"><span>{{ label }}</span>
+          {% if a %}<span class="ok">✓</span>{% else %}<span class="need">нужно</span>{% endif %}
+        </div>
+        {% if a %}
+          <img class="thumb" src="{% url 'driver_file_thumb' a.id %}" alt="{{ label }}">
+          <button class="linkdel" name="delete_id" value="{{ a.id }}" formnovalidate>Заменить</button>
+        {% else %}
+          <label class="filebtn">Снять
+            <input type="file" name="photo_{{ value }}" accept="image/*" capture="environment" data-autosubmit>
+          </label>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Дефекты (необязательно, до {{ max_defects }})</h2>
+    {% for a in slots.defects %}
+      <div class="slot filled">
+        <img class="thumb" src="{% url 'driver_file_thumb' a.id %}" alt="дефект">
+        <button class="linkdel" name="delete_id" value="{{ a.id }}" formnovalidate>Удалить</button>
+      </div>
+    {% endfor %}
+    {% if slots.defects|length < max_defects %}
+    <label class="filebtn">Добавить фото дефекта
+      <input type="file" name="photo_defect" accept="image/*" capture="environment" data-autosubmit>
+    </label>
+    {% endif %}
+  </div>
+
+  <div class="rowbtns">
+    <button type="submit" name="action" value="back" class="secondary" formnovalidate>Назад</button>
+    <button type="submit" name="action" value="next" data-submitlabel>Далее</button>
+  </div>
+</form>
+{% endblock %}

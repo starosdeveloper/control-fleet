@@ -1,0 +1,22 @@
+{% extends "drivers/base.html" %}
+{% block title %}Данные отправлены{% endblock %}
+
+{% block header %}
+<header class="app">
+  <span class="vin">{{ report.vehicle.vin }}</span>
+</header>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <h1>Спасибо, данные отправлены</h1>
+  <dl>
+    <div><dt>Номер отчёта</dt><dd>{{ report.number }}</dd></div>
+    <div><dt>Дата</dt><dd>{{ report.submitted_at|date:"d.m.Y" }}</dd></div>
+    <div><dt>Время</dt><dd>{{ report.submitted_at|date:"H:i" }}</dd></div>
+  </dl>
+</div>
+<div class="card">
+  <a class="btn" href="{% url 'driver_home' %}">В кабинет</a>
+</div>
+{% endblock %}

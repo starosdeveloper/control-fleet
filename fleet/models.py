@@ -169,6 +169,11 @@ class Report(models.Model):
         NONE = "none", "замечаний нет"
         HAS = "has", "есть замечания"
 
+    class MaintChoice(models.TextChoices):
+        DONE = "done", "ТО выполнено"
+        NOT_DONE = "not_done", "ТО не выполнено"
+        UNKNOWN = "unknown", "Не знаю / нет документов"
+
     vehicle = models.ForeignKey(
         Vehicle, on_delete=models.PROTECT, related_name="reports", verbose_name="ТС"
     )
@@ -192,6 +197,20 @@ class Report(models.Model):
     measured_at = models.DateTimeField("время измерения", null=True, blank=True)
     submitted_at = models.DateTimeField("время отправки", null=True, blank=True)
     created_at = models.DateTimeField("создан", default=timezone.now)
+
+    # --- Черновиковые поля экранов водителя (§5); замораживаются при отправке ---
+    current_step = models.PositiveSmallIntegerField("текущий экран", default=1)
+    odometer_value_km = models.PositiveIntegerField(
+        "показание одометра, км", null=True, blank=True
+    )
+    maint_choice = models.CharField(
+        "сведения о ТО", max_length=10, choices=MaintChoice.choices, blank=True
+    )
+    maint_date = models.DateField("дата ТО", null=True, blank=True)
+    maint_mileage_km = models.PositiveIntegerField("пробег на ТО, км", null=True, blank=True)
+    maint_work_order = models.CharField("заказ-наряд", max_length=120, blank=True)
+    maint_no_document = models.BooleanField("нет документа ТО", default=False)
+    maint_reason = models.TextField("причина отсутствия документа", blank=True)
     # Ключ защиты от повторной отправки (ТЗ §4, §5, §9).
     idempotency_key = models.CharField(
         "ключ идемпотентности", max_length=64, unique=True, null=True, blank=True
@@ -201,9 +220,21 @@ class Report(models.Model):
         verbose_name = "отчёт"
         verbose_name_plural = "отчёты"
         ordering = ["-created_at"]
+        constraints = [
+            # Не более одного черновика на назначение (ТЗ §5).
+            models.UniqueConstraint(
+                fields=["assignment"],
+                condition=models.Q(state="draft"),
+                name="unique_draft_per_assignment",
+            )
+        ]
 
     def __str__(self) -> str:
         return f"Отчёт №{self.id} {self.vehicle.vin} {self.period_month:%Y-%m}"
+
+    @property
+    def number(self) -> str:
+        return f"R-{self.id:06d}"
 
 
 # --- Показания одометра -------------------------------------------------------
@@ -354,6 +385,14 @@ class Attachment(models.Model):
 
     def __str__(self) -> str:
         return f"{self.get_kind_display()} ({self.stored_path})"
+
+    @property
+    def vehicle(self) -> "Vehicle | None":
+        if self.report_id:
+            return self.report.vehicle
+        if self.maintenance_id:
+            return self.maintenance.vehicle
+        return None
 
 
 # --- Импорт и аудит -----------------------------------------------------------

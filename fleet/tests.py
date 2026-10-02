@@ -7,14 +7,19 @@
 """
 from __future__ import annotations
 
-from datetime import date
+import io
+import shutil
+import tempfile
+from datetime import date, timedelta
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
-from django.test import Client, TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
+from PIL import Image
 
 from .access import (
     ADMIN_GROUP,
@@ -249,3 +254,259 @@ class DriverLoginTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "ИНН — строка из 10 или 12 цифр")
         self.assertNotContains(resp, "Не удалось войти")
+
+
+# --- Шаг 2: отчёт водителя ---------------------------------------------------
+
+def make_jpeg(size=(1200, 900), color=(120, 130, 140)) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", size, color).save(buf, format="JPEG", quality=90)
+    return buf.getvalue()
+
+
+class ReadingClassifyTests(TestCase):
+    """ТЗ §6, критерий «Спорный пробег» — чистая логика classify_reading."""
+
+    def c(self, value, when, prior, same_date=None, jump=3000, conflict=1000):
+        from .readings import classify_reading
+        return classify_reading(value, when, prior, same_date or [], jump, conflict)
+
+    def test_accept_plain_growth(self):
+        v = self.c(160_000, date(2026, 9, 30), [(150_000, date(2026, 8, 30))])
+        self.assertTrue(v.accepted)
+
+    def test_reject_backwards(self):
+        # Позднее меньшее значение → на проверку.
+        v = self.c(140_000, date(2026, 9, 30), [(150_000, date(2026, 8, 30))])
+        self.assertFalse(v.accepted)
+
+    def test_reject_daily_jump(self):
+        # Скачок > 3000 км/сут: +10 000 за 1 день.
+        v = self.c(160_000, date(2026, 9, 1), [(150_000, date(2026, 8, 31))])
+        self.assertFalse(v.accepted)
+
+    def test_accept_jump_over_many_days(self):
+        # +10 000 за 10 дней = 1000 км/сут — в пределах нормы.
+        v = self.c(160_000, date(2026, 9, 10), [(150_000, date(2026, 8, 31))])
+        self.assertTrue(v.accepted)
+
+    def test_reject_source_conflict_same_date(self):
+        v = self.c(160_000, date(2026, 9, 30), [], same_date=[162_000])
+        self.assertFalse(v.accepted)
+
+    def test_first_reading_accepted(self):
+        v = self.c(100_000, date(2026, 9, 30), [])
+        self.assertTrue(v.accepted)
+
+
+class CompletenessTests(TestCase):
+    """ТЗ §5 экран 3: краткая проверка полноты; §6: ТО без документа не блокирует."""
+
+    def setUp(self):
+        from .models import Report
+        self.tenant = Tenant.objects.create(inn="7700000001")
+        self.vehicle = Vehicle.objects.create(vin="TRUCKFLEET0000001")
+        self.assignment = Assignment.objects.create(
+            vehicle=self.vehicle, tenant=self.tenant, started_at=timezone.now()
+        )
+        self.draft = Report.objects.create(
+            vehicle=self.vehicle, assignment=self.assignment,
+            period_month=date.today().replace(day=1), state=Report.State.DRAFT,
+            idempotency_key="k1",
+        )
+
+    def _add_all_photos(self):
+        from .models import Attachment
+        Attachment.objects.create(report=self.draft, kind=Attachment.Kind.DASHBOARD,
+                                  stored_path="x", content_type="image/jpeg", size_bytes=1)
+        for v in (Attachment.View.FRONT, Attachment.View.BACK, Attachment.View.LEFT, Attachment.View.RIGHT):
+            Attachment.objects.create(report=self.draft, kind=Attachment.Kind.VEHICLE,
+                                      view=v, stored_path="x", content_type="image/jpeg", size_bytes=1)
+
+    def test_empty_draft_many_errors(self):
+        from .submit import completeness_errors
+        self.assertTrue(completeness_errors(self.draft))
+
+    def test_complete_no_defects(self):
+        from .models import Report
+        from .submit import completeness_errors
+        self.draft.odometer_value_km = 166_000
+        self.draft.maint_choice = Report.MaintChoice.UNKNOWN
+        self.draft.defects = Report.Defects.NONE
+        self.draft.save()
+        self._add_all_photos()
+        self.assertEqual(completeness_errors(self.draft), [])
+
+    def test_defects_require_comment(self):
+        from .models import Report
+        from .submit import completeness_errors
+        self.draft.odometer_value_km = 166_000
+        self.draft.maint_choice = Report.MaintChoice.UNKNOWN
+        self.draft.defects = Report.Defects.HAS
+        self.draft.comment = ""
+        self.draft.save()
+        self._add_all_photos()
+        self.assertIn("комментарий обязателен", " ".join(completeness_errors(self.draft)))
+
+    def test_maint_mileage_cannot_exceed_odometer(self):
+        from .models import Report
+        from .submit import completeness_errors
+        self.draft.odometer_value_km = 100_000
+        self.draft.maint_choice = Report.MaintChoice.DONE
+        self.draft.maint_date = date.today()
+        self.draft.maint_mileage_km = 120_000
+        self.draft.save()
+        self._add_all_photos()
+        self.assertIn("не может превышать", " ".join(completeness_errors(self.draft)))
+
+    def test_overdue_does_not_block(self):
+        # Просрочка ТО не должна попадать в ошибки полноты.
+        from .models import Maintenance, OdometerReading, Report
+        Maintenance.objects.create(vehicle=self.vehicle, performed_on=date(2026, 1, 1),
+                                   mileage_km=120_000, status=Maintenance.Status.CONFIRMED,
+                                   basis=Maintenance.Basis.INITIAL)
+        self.draft.odometer_value_km = 200_000  # далеко за порогом
+        self.draft.maint_choice = Report.MaintChoice.NOT_DONE
+        self.draft.save()
+        self._add_all_photos()
+        from .submit import completeness_errors
+        self.assertEqual(completeness_errors(self.draft), [])
+
+
+class SubmitFlowTests(TestCase):
+    """ТЗ §5 экран 4, §6: отправка создаёт показание и ТО «на проверке», идемпотентна."""
+
+    def setUp(self):
+        from .models import Report
+        self.tenant = Tenant.objects.create(inn="7700000001")
+        self.vehicle = Vehicle.objects.create(vin="TRUCKFLEET0000001")
+        self.assignment = Assignment.objects.create(
+            vehicle=self.vehicle, tenant=self.tenant, started_at=timezone.now()
+        )
+        self.draft = Report.objects.create(
+            vehicle=self.vehicle, assignment=self.assignment,
+            period_month=date.today().replace(day=1), state=Report.State.DRAFT,
+            idempotency_key="k1", odometer_value_km=166_000,
+            maint_choice=Report.MaintChoice.DONE, maint_date=date(2026, 6, 1),
+            maint_mileage_km=160_000, maint_no_document=True, maint_reason="нет документа",
+        )
+
+    def test_submit_creates_reading_and_pending_maintenance(self):
+        from .models import Maintenance, OdometerReading, Report
+        from .submit import submit_report
+        report = submit_report(self.draft)
+        self.assertEqual(report.state, Report.State.SUBMITTED)
+        self.assertIsNotNone(report.submitted_at)
+        reading = OdometerReading.objects.get(report=report)
+        self.assertEqual(reading.value_km, 166_000)
+        self.assertEqual(reading.source, OdometerReading.Source.DRIVER)
+        m = Maintenance.objects.get(report=report)
+        self.assertEqual(m.status, Maintenance.Status.REPORTED)  # не подтверждено автоматически
+        self.assertTrue(m.no_document)
+
+    def test_submit_idempotent_no_duplicate(self):
+        from .models import OdometerReading, Report
+        from .submit import submit_report
+        r1 = submit_report(self.draft)
+        r2 = submit_report(r1)  # повторная отправка
+        self.assertEqual(r1.id, r2.id)
+        self.assertEqual(OdometerReading.objects.filter(report=r1).count(), 1)
+        self.assertEqual(Report.objects.filter(assignment=self.assignment).count(), 1)
+
+
+class ImageProcessTests(TestCase):
+    def test_process_photo_returns_jpeg_and_thumb(self):
+        from .images import process_photo, sniff
+        main, thumb = process_photo(make_jpeg())
+        self.assertEqual(sniff(main).kind, "jpeg")
+        self.assertEqual(sniff(thumb).kind, "jpeg")
+        self.assertLessEqual(len(main), 2 * 1024 * 1024)
+
+    def test_sniff_rejects_garbage(self):
+        from .images import ImageError, sniff
+        with self.assertRaises(ImageError):
+            sniff(b"this is not an image at all")
+
+    def test_document_pdf_ok(self):
+        from .images import validate_document
+        s = validate_document(b"%PDF-1.4\n...")
+        self.assertEqual(s.kind, "pdf")
+        self.assertFalse(s.is_photo)
+
+
+_TMP_MEDIA = tempfile.mkdtemp(prefix="cf_test_media_")
+
+
+@override_settings(PRIVATE_MEDIA_ROOT=_TMP_MEDIA)
+class DriverReportE2ETests(TestCase):
+    """ТЗ §5: сквозной путь по экранам через HTTP-клиент, с загрузкой фото."""
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(_TMP_MEDIA, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        self.client = Client()
+        self.tenant = Tenant.objects.create(inn="7700000001")
+        self.vehicle = Vehicle.objects.create(vin="TRUCKFLEET0000001")
+        Assignment.objects.create(
+            vehicle=self.vehicle, tenant=self.tenant, started_at=timezone.now()
+        )
+        self.client.post(reverse("driver_login"),
+                         {"inn": "7700000001", "vin": "TRUCKFLEET0000001"})
+
+    def _img(self, name):
+        return SimpleUploadedFile(name, make_jpeg(), content_type="image/jpeg")
+
+    def test_full_flow_to_confirmation(self):
+        from .models import Attachment, OdometerReading, Report
+        # Экран 1: показание + фото одометра + ТО неизвестно.
+        self.client.post(reverse("driver_report_step1"), {
+            "odometer_value_km": "166000", "maint_choice": "unknown",
+            "photo_dashboard": self._img("dash.jpg"),
+        })
+        draft = Report.objects.get(assignment__vehicle=self.vehicle, state=Report.State.DRAFT)
+        self.assertEqual(draft.odometer_value_km, 166000)
+        self.assertTrue(draft.attachments.filter(kind=Attachment.Kind.DASHBOARD).exists())
+
+        # Экран 2: четыре ракурса.
+        for v in ("front", "back", "left", "right"):
+            self.client.post(reverse("driver_report_step2"), {f"photo_{v}": self._img(f"{v}.jpg")})
+        self.assertEqual(draft.attachments.filter(kind=Attachment.Kind.VEHICLE).count(), 4)
+
+        # Экран 3: без замечаний, отправка.
+        resp = self.client.post(reverse("driver_report_step3"),
+                                {"defects": "none", "action": "submit"})
+        self.assertRedirects(resp, reverse("driver_report_done"))
+        report = Report.objects.get(state=Report.State.SUBMITTED)
+        self.assertEqual(OdometerReading.objects.filter(report=report).count(), 1)
+
+        # Экран 4: подтверждение показывает номер.
+        done = self.client.get(reverse("driver_report_done"))
+        self.assertContains(done, report.number)
+
+    def test_cannot_submit_without_required_photos(self):
+        from .models import Report
+        self.client.post(reverse("driver_report_step1"),
+                         {"odometer_value_km": "166000", "maint_choice": "unknown"})
+        resp = self.client.post(reverse("driver_report_step3"),
+                                {"defects": "none", "action": "submit"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "фото")  # перечислены недостающие пункты
+        self.assertFalse(Report.objects.filter(state=Report.State.SUBMITTED).exists())
+
+    def test_foreign_attachment_not_served(self):
+        # Вложение чужого ТС недоступно по прямой ссылке (ТЗ §9).
+        from .models import Attachment, Report
+        other_v = Vehicle.objects.create(vin="TRUCKFLEET0000002")
+        other_t = Tenant.objects.create(inn="500100732259")
+        other_a = Assignment.objects.create(vehicle=other_v, tenant=other_t, started_at=timezone.now())
+        other_r = Report.objects.create(vehicle=other_v, assignment=other_a,
+                                        period_month=date.today().replace(day=1),
+                                        state=Report.State.DRAFT, idempotency_key="k2")
+        att = Attachment.objects.create(report=other_r, kind=Attachment.Kind.DASHBOARD,
+                                        stored_path="x", content_type="image/jpeg", size_bytes=1)
+        # Текущая сессия вошла на VIN ...0001, пытается тянуть файл ...0002.
+        resp = self.client.get(reverse("driver_file", args=[att.id]))
+        self.assertEqual(resp.status_code, 404)

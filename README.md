@@ -12,7 +12,7 @@ the server. Timezone `Europe/Moscow`. See [`docs/SPEC.md`](docs/SPEC.md) for the
 data contracts and [`docs/ROADMAP.md`](docs/ROADMAP.md) (Russian) for stage
 criteria and what is still open.
 
-## Current state — Stage 1 (foundation) done
+## Current state — Stages 1–2 done
 
 What works and is proven on a live server:
 
@@ -29,14 +29,25 @@ What works and is proven on a live server:
   that assignment is closed.
 - **Maintenance calculation (§6)** as a pure, host-tested function: next service =
   confirmed-service mileage + interval; remainder drives gray/green/yellow/red.
+- **Driver report, four screens (§5)**: dashboard-odometer photo + mileage +
+  maintenance block; four mandatory tractor angles + up to five defect photos;
+  defects/comment + a completeness check; confirmation with a report number.
+  Server-side draft (one per assignment), safe idempotent submission (a double
+  submit yields one report), reading-dispute classification (§6), maintenance
+  reported by the driver and left "pending" for staff (never auto-confirmed),
+  overdue never blocks submission.
+- **Closed file storage (§9)**: real-format check by magic bytes, convert to JPEG,
+  EXIF orientation applied then metadata (incl. geolocation) stripped, thumbnail,
+  target ≤2 MB, ≤15 MB source; server-generated names under
+  `vehicles/<ID_VIN>/reports/<YYYY-MM>/report_<id>/…`; served only after a
+  per-VIN access check (no public links).
 - **Demo data**: 10 vehicles, 2 tenants, 2 managers, 1 admin, assignments and
   maintenance records covering every §6 state.
 - **Django admin** as the staff back office, with manager querysets restricted to
   their own vehicles.
 
-Stage 2 (full 4-screen report submission with photo upload), Stage 3 (staff
-dashboard/indicators/exports) and Stage 4 (GPS import, deployment) are scaffolded
-in the models but not yet implemented. See the roadmap.
+Stage 3 (staff dashboard/indicators/exports) and Stage 4 (GPS import, deployment)
+are scaffolded in the models but not yet implemented. See the roadmap.
 
 ## Quick start (local development)
 
@@ -76,13 +87,13 @@ Automatic checks are mandatory for the maintenance calc, access rights and login
 Last real run:
 
 ```
-Found 29 test(s).
+Found 48 test(s).
 System check identified no issues (0 silenced).
-Ran 29 tests in 0.821s
+Ran 48 tests in 3.865s
 OK
 ```
 
-### Live server check (driver login flow)
+### Live server check — driver login flow
 
 Raw output from a running `runserver` instance:
 
@@ -101,6 +112,26 @@ D) cabinet without session -> redirect to login
    HTTP 302 -> http://127.0.0.1:8099/
 ```
 
+### Live server check — full report submission (four screens, with photo upload)
+
+```
+=== logged in as VIN1 ===
+step1 next HTTP 302 -> http://127.0.0.1:8099/report/step2/
+=== 4 angles uploaded ===
+step2 next HTTP 302 -> http://127.0.0.1:8099/report/step3/
+step3 submit HTTP 302 -> http://127.0.0.1:8099/report/done/
+=== screen 4: confirmation ===
+Спасибо, данные отправлены
+R-000001
+02.10.2026
+
+DB after run:
+report R-000001 state submitted manager manager1
+reading 155000 source driver verification accepted
+attachments: 5 {'dashboard': 1, 'vehicle': 4}
+stored files under private_media/vehicles/000001_TRUCKFLEET0000001/reports/2026-10/report_1/
+```
+
 ## Project layout
 
 ```
@@ -109,11 +140,20 @@ fleet/               core domain
   models.py          §9 entities
   validators.py      VIN / INN normalization and format (§4)
   maintenance.py     §6 service calculation (pure, host-tested)
+  readings.py        §6 odometer-reading dispute classification (pure)
+  submit.py          report completeness + atomic idempotent submission (§5, §6)
+  attachments.py     attachment intake, slots, limits (§5, §9)
+  images.py          format sniff, JPEG convert, EXIF strip, thumbnail (§9)
+  storage.py         closed file storage, server-generated paths (§9)
+  fileaccess.py      per-VIN protected file serving (§9)
   access.py          role/visibility isolation and active-pair login (§4, §7)
   admin.py           staff back office, manager-scoped querysets
   management/commands/seed_demo.py
   tests.py
-drivers/             driver cabinet (login, session, screen 1)
+drivers/             driver cabinet
+  views.py           login, session, home, protected file views
+  report_views.py    four-screen report flow (§5)
+  session.py ratelimit.py forms.py
 templates/drivers/   mobile-first templates (≥360px, Russian)
 docs/                SPEC.md (contracts), ROADMAP.md (stages, Russian)
 ```

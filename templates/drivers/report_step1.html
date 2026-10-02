@@ -1,0 +1,119 @@
+{% extends "drivers/base.html" %}
+{% block title %}Пробег и ТО{% endblock %}
+
+{% block header %}
+<header class="app">
+  <span class="vin">{{ vehicle.vin }}</span>
+  <a href="{% url 'driver_home' %}" class="btn secondary" style="width:auto;padding:8px 12px;font-size:14px;background:transparent;border:1px solid #fff;color:#fff">Кабинет</a>
+</header>
+{% endblock %}
+
+{% block content %}
+<div class="steps"><span class="on"></span><span></span><span></span></div>
+
+<form method="post" enctype="multipart/form-data">
+  {% csrf_token %}
+
+  <div class="card">
+    <h2>Фото панели приборов</h2>
+    <p class="hint">Одометр должен быть читаем.</p>
+    {% with d=slots.dashboard %}
+    <div class="slot {% if d %}filled{% endif %}">
+      <div class="cap"><span>Панель приборов</span>
+        {% if d %}<span class="ok">✓ загружено</span>{% else %}<span class="need">обязательно</span>{% endif %}
+      </div>
+      {% if d %}
+        <img class="thumb" src="{% url 'driver_file_thumb' d.id %}" alt="панель приборов">
+        <button class="linkdel" name="delete_id" value="{{ d.id }}" formnovalidate>Заменить / удалить</button>
+      {% else %}
+        <label class="filebtn">Снять или выбрать фото
+          <input type="file" name="photo_dashboard" accept="image/*" capture="environment" data-autosubmit>
+        </label>
+      {% endif %}
+    </div>
+    {% endwith %}
+  </div>
+
+  <div class="card">
+    <h2>Показание одометра, км</h2>
+    <input type="text" name="odometer_value_km" inputmode="numeric" pattern="[0-9 ]*"
+           value="{{ draft.odometer_value_km|default_if_none:'' }}" placeholder="например, 166000">
+    {% if field_errors.odometer %}<div class="errors">{{ field_errors.odometer }}</div>{% endif %}
+    <div class="badge {{ maint.color.value }}" style="margin-top:12px">{{ maint.text }}</div>
+  </div>
+
+  <div class="card">
+    <h2>Сведения о ТО</h2>
+    <div class="radios">
+      {% for val, label in MaintChoice.choices %}
+      <label>
+        <input type="radio" name="maint_choice" value="{{ val }}"
+               {% if draft.maint_choice == val %}checked{% endif %}
+               onchange="document.getElementById('maint-done').style.display = (this.value==='done')?'block':'none';">
+        {{ label }}
+      </label>
+      {% endfor %}
+    </div>
+
+    <div id="maint-done" style="display:{% if draft.maint_choice == 'done' %}block{% else %}none{% endif %}">
+      <div class="field">
+        <label>Дата ТО</label>
+        <input type="date" name="maint_date" max="{{ today }}"
+               value="{{ draft.maint_date|date:'Y-m-d' }}">
+        {% if field_errors.maint_date %}<div class="errors">{{ field_errors.maint_date }}</div>{% endif %}
+      </div>
+      <div class="field">
+        <label>Пробег на ТО, км</label>
+        <input type="text" name="maint_mileage_km" inputmode="numeric"
+               value="{{ draft.maint_mileage_km|default_if_none:'' }}">
+        {% if field_errors.maint_mileage %}<div class="errors">{{ field_errors.maint_mileage }}</div>{% endif %}
+      </div>
+      <div class="field">
+        <label>Заказ-наряд (номер)</label>
+        <input type="text" name="maint_work_order" value="{{ draft.maint_work_order }}">
+      </div>
+
+      {% with wo=slots.work_orders sb=slots.service_book %}
+      <div class="slot {% if wo %}filled{% endif %}">
+        <div class="cap"><span>Фото заказ-наряда (до 5)</span></div>
+        {% for a in wo %}
+          <img class="thumb" src="{% url 'driver_file_thumb' a.id %}" alt="заказ-наряд">
+          <button class="linkdel" name="delete_id" value="{{ a.id }}" formnovalidate>Удалить</button>
+        {% endfor %}
+        {% if wo|length < 5 %}
+        <label class="filebtn">Добавить файл
+          <input type="file" name="photo_work_order" accept="image/*,application/pdf" data-autosubmit>
+        </label>
+        {% endif %}
+      </div>
+      <div class="slot {% if sb %}filled{% endif %}">
+        <div class="cap"><span>Фото сервисной книжки (до 5)</span></div>
+        {% for a in sb %}
+          <img class="thumb" src="{% url 'driver_file_thumb' a.id %}" alt="сервисная книжка">
+          <button class="linkdel" name="delete_id" value="{{ a.id }}" formnovalidate>Удалить</button>
+        {% endfor %}
+        {% if sb|length < 5 %}
+        <label class="filebtn">Добавить файл
+          <input type="file" name="photo_service_book" accept="image/*,application/pdf" data-autosubmit>
+        </label>
+        {% endif %}
+      </div>
+      {% endwith %}
+
+      <label style="display:flex;gap:10px;align-items:center;font-weight:500;margin-top:8px">
+        <input type="checkbox" name="maint_no_document" style="width:20px;height:20px"
+               {% if draft.maint_no_document %}checked{% endif %}>
+        Нет документа
+      </label>
+      <div class="field" style="margin-top:8px">
+        <label>Причина (если нет документа)</label>
+        <textarea name="maint_reason">{{ draft.maint_reason }}</textarea>
+      </div>
+      <p class="hint">Без документа отчёт отправить можно — ТО будет отмечено «на проверке»,
+      подтверждённым автоматически не станет.</p>
+    </div>
+  </div>
+
+  <button type="submit" name="action" value="next" data-submitlabel>Далее</button>
+</form>
+{% endblock %}

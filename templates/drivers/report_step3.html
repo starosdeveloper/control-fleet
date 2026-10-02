@@ -1,0 +1,56 @@
+{% extends "drivers/base.html" %}
+{% block title %}Отправка отчёта{% endblock %}
+
+{% block header %}
+<header class="app">
+  <span class="vin">{{ vehicle.vin }}</span>
+  <a href="{% url 'driver_home' %}" class="btn secondary" style="width:auto;padding:8px 12px;font-size:14px;background:transparent;border:1px solid #fff;color:#fff">Кабинет</a>
+</header>
+{% endblock %}
+
+{% block content %}
+<div class="steps"><span class="on"></span><span class="on"></span><span class="on"></span></div>
+
+<form method="post">
+  {% csrf_token %}
+
+  <div class="card">
+    <h2>Техническое состояние</h2>
+    <div class="radios">
+      <label>
+        <input type="radio" name="defects" value="none"
+               {% if draft.defects == 'none' %}checked{% endif %}
+               onchange="document.getElementById('cmt-req').style.display='none';">
+        Замечаний нет
+      </label>
+      <label>
+        <input type="radio" name="defects" value="has"
+               {% if draft.defects == 'has' %}checked{% endif %}
+               onchange="document.getElementById('cmt-req').style.display='inline';">
+        Есть замечания
+      </label>
+    </div>
+    <div class="field">
+      <label>Комментарий <span id="cmt-req" style="color:var(--red);display:{% if draft.defects == 'has' %}inline{% else %}none{% endif %}">— обязателен при замечаниях</span></label>
+      <textarea name="comment" maxlength="2000">{{ draft.comment }}</textarea>
+      <p class="hint">До 2000 символов.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Краткая проверка</h2>
+    {% if check_errors %}
+      <ul class="check-list">
+        {% for e in check_errors %}<li>{{ e }}</li>{% endfor %}
+      </ul>
+    {% else %}
+      <p class="check-ok">Всё заполнено. Можно отправлять.</p>
+    {% endif %}
+  </div>
+
+  <div class="rowbtns">
+    <button type="submit" name="action" value="back" class="secondary">Назад</button>
+    <button type="submit" name="action" value="submit" data-submitlabel>Отправить данные</button>
+  </div>
+</form>
+{% endblock %}

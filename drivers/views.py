@@ -13,6 +13,7 @@ from django.shortcuts import redirect, render
 from django.views.decorators.http import require_http_methods
 
 from fleet.access import resolve_active_assignment
+from fleet.fileaccess import serve_attachment
 from fleet.maintenance import maintenance_state
 from fleet.models import Maintenance, OdometerReading, Report
 
@@ -114,3 +115,15 @@ def driver_home(request):
         "has_history": last_report is not None or accepted is not None,
     }
     return render(request, "drivers/home.html", context)
+
+
+@driver_required
+@require_http_methods(["GET"])
+def driver_file(request, attachment_id: int):
+    return serve_attachment(request, attachment_id, thumb=False)
+
+
+@driver_required
+@require_http_methods(["GET"])
+def driver_file_thumb(request, attachment_id: int):
+    return serve_attachment(request, attachment_id, thumb=True)
