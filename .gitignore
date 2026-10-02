@@ -1,0 +1,17 @@
+# Окружение и секреты — вне репозитория (ТЗ §10)
+.env
+.venv/
+*.pyc
+__pycache__/
+
+# База и локальные файлы
+db.sqlite3
+db.sqlite3-journal
+
+# Закрытое файловое хранилище и собранная статика
+private_media/
+staticfiles/
+
+# Прочее
+*.log
+.DS_Store

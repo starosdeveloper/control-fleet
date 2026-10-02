@@ -1,0 +1,24 @@
+{% extends "drivers/base.html" %}
+{% block title %}Вход водителя{% endblock %}
+
+{% block content %}
+<div class="card">
+  <h1>Вход водителя</h1>
+  <form method="post" novalidate>
+    {% csrf_token %}
+    <div class="field">
+      <label for="{{ form.inn.id_for_label }}">{{ form.inn.label }}</label>
+      {{ form.inn }}
+      {% if form.inn.errors %}<div class="errors">{{ form.inn.errors.0 }}</div>{% endif %}
+      <p class="hint">10 или 12 цифр</p>
+    </div>
+    <div class="field">
+      <label for="{{ form.vin.id_for_label }}">{{ form.vin.label }}</label>
+      {{ form.vin }}
+      {% if form.vin.errors %}<div class="errors">{{ form.vin.errors.0 }}</div>{% endif %}
+      <p class="hint">17 символов, латиница и цифры</p>
+    </div>
+    <button type="submit">Войти</button>
+  </form>
+</div>
+{% endblock %}

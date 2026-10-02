@@ -1,0 +1,78 @@
+{% load static %}
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{% block title %}Кабинет водителя{% endblock %}</title>
+  <style>
+    :root {
+      --bg: #f4f5f7; --card: #ffffff; --ink: #1b1f24; --muted: #5c6670;
+      --line: #d7dce1; --accent: #1b5e9c; --accent-ink: #ffffff;
+      --green: #1f7a3d; --yellow: #8a6300; --red: #b01919; --gray: #5c6670;
+      --green-bg: #e3f3e8; --yellow-bg: #fcf3d9; --red-bg: #fbe5e5; --gray-bg: #eceff1;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 17px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      -webkit-text-size-adjust: 100%;
+    }
+    .wrap { max-width: 520px; min-width: 320px; margin: 0 auto; padding: 16px; }
+    header.app {
+      background: var(--accent); color: var(--accent-ink);
+      padding: 14px 16px; display: flex; align-items: center; justify-content: space-between;
+    }
+    header.app .vin { font-weight: 600; letter-spacing: .5px; }
+    .card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      padding: 16px; margin: 0 0 16px;
+    }
+    h1 { font-size: 22px; margin: 0 0 16px; }
+    h2 { font-size: 18px; margin: 0 0 10px; }
+    label { display: block; font-weight: 600; margin: 0 0 6px; }
+    input[type=text], input[type=password] {
+      width: 100%; padding: 14px; font-size: 18px; border: 1px solid var(--line);
+      border-radius: 10px; background: #fff;
+    }
+    .field { margin: 0 0 16px; }
+    .hint { color: var(--muted); font-size: 14px; margin: 6px 0 0; }
+    .errors { color: var(--red); font-size: 14px; margin: 6px 0 0; }
+    button, .btn {
+      display: block; width: 100%; padding: 16px; font-size: 18px; font-weight: 600;
+      border: none; border-radius: 10px; background: var(--accent); color: var(--accent-ink);
+      cursor: pointer; text-align: center; text-decoration: none;
+    }
+    button.secondary, .btn.secondary {
+      background: transparent; color: var(--accent); border: 1px solid var(--accent);
+    }
+    .msg { padding: 12px 14px; border-radius: 10px; margin: 0 0 16px; font-size: 15px; }
+    .msg.error { background: var(--red-bg); color: var(--red); }
+    .msg.success { background: var(--green-bg); color: var(--green); }
+    .badge {
+      display: inline-block; padding: 10px 14px; border-radius: 10px;
+      font-weight: 600; font-size: 16px; width: 100%; text-align: center;
+    }
+    .badge.green  { background: var(--green-bg);  color: var(--green); }
+    .badge.yellow { background: var(--yellow-bg); color: var(--yellow); }
+    .badge.red    { background: var(--red-bg);    color: var(--red); }
+    .badge.gray   { background: var(--gray-bg);   color: var(--gray); }
+    dl { margin: 0; }
+    dl div { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+    dl div:last-child { border-bottom: none; }
+    dt { color: var(--muted); }
+    dd { margin: 0; text-align: right; font-weight: 600; }
+  </style>
+</head>
+<body>
+  {% block header %}{% endblock %}
+  <main class="wrap">
+    {% if messages %}
+      {% for m in messages %}
+        <div class="msg {% if m.tags %}{{ m.tags }}{% endif %}">{{ m }}</div>
+      {% endfor %}
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

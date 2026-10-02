@@ -1,0 +1,42 @@
+{% extends "drivers/base.html" %}
+{% block title %}Пробег и ТО{% endblock %}
+
+{% block header %}
+<header class="app">
+  <span class="vin">{{ vehicle.vin }}</span>
+  <form method="post" action="{% url 'driver_logout' %}" style="margin:0;width:auto">
+    {% csrf_token %}
+    <button type="submit" class="secondary" style="padding:8px 12px;font-size:14px;width:auto;background:transparent;border:1px solid #fff;color:#fff">Выход</button>
+  </form>
+</header>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <h2>Пробег и техническое обслуживание</h2>
+  {% if not has_history %}
+    <p class="hint">Данные ещё не передавались.</p>
+  {% else %}
+    <dl>
+      {% if last_report %}
+      <div><dt>Последний отчёт</dt><dd>{{ last_report.submitted_at|date:"d.m.Y" }}</dd></div>
+      {% endif %}
+      {% if accepted %}
+      <div><dt>Актуальный пробег</dt><dd>{{ accepted.value_km }} км</dd></div>
+      <div><dt>Дата показания</dt><dd>{{ accepted.measured_at|date:"d.m.Y" }}</dd></div>
+      <div><dt>Источник</dt><dd>{{ accepted.get_source_display }}</dd></div>
+      {% endif %}
+    </dl>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Состояние ТО</h2>
+  <span class="badge {{ maint.color.value }}">{{ maint.text }}</span>
+</div>
+
+<div class="card">
+  <p class="hint">Отправка месячного отчёта (фото одометра, четыре ракурса,
+  сведения о ТО) подключается на Шаге 2.</p>
+</div>
+{% endblock %}
