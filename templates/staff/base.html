@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Кабинет сотрудников{% endblock %}</title>
+  <style>
+    :root {
+      --bg: #f4f5f7; --card: #ffffff; --ink: #1b1f24; --muted: #5c6670;
+      --line: #d7dce1; --accent: #1b5e9c; --accent-ink: #ffffff;
+      --green: #1f7a3d; --yellow: #8a6300; --red: #b01919; --gray: #5c6670;
+      --green-bg: #e3f3e8; --yellow-bg: #fcf3d9; --red-bg: #fbe5e5; --gray-bg: #eceff1;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--ink);
+      font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    a { color: var(--accent); }
+    header.app {
+      background: var(--accent); color: var(--accent-ink);
+      padding: 12px 20px; display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 8px;
+    }
+    header.app .brand { font-weight: 700; letter-spacing: .3px; }
+    header.app a { color: var(--accent-ink); }
+    header.app form { margin: 0; }
+    header.app button {
+      background: transparent; color: var(--accent-ink); border: 1px solid rgba(255,255,255,.6);
+      border-radius: 8px; padding: 7px 12px; font-size: 14px; cursor: pointer;
+    }
+    .wrap { max-width: 1240px; margin: 0 auto; padding: 18px 20px 48px; }
+    .card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      padding: 16px 18px; margin: 0 0 18px;
+    }
+    h1 { font-size: 22px; margin: 0 0 14px; }
+    h2 { font-size: 17px; margin: 0 0 12px; }
+    h3 { font-size: 15px; margin: 18px 0 8px; }
+    .muted { color: var(--muted); }
+    .msg { padding: 11px 14px; border-radius: 10px; margin: 0 0 14px; font-size: 14px; }
+    .msg.error { background: var(--red-bg); color: var(--red); }
+    .msg.success { background: var(--green-bg); color: var(--green); }
+
+    .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+    .tile { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+    .tile .n { font-size: 28px; font-weight: 700; line-height: 1.1; }
+    .tile .l { color: var(--muted); font-size: 13px; margin-top: 4px; }
+    .tile.red .n { color: var(--red); }
+    .tile.yellow .n { color: var(--yellow); }
+    .tile.gray .n { color: var(--gray); }
+    .tile.green .n { color: var(--green); }
+
+    .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin: 0 0 14px; }
+    .toolbar .fld { display: flex; flex-direction: column; gap: 4px; }
+    .toolbar label { font-size: 12px; color: var(--muted); }
+    select, input[type=text], input[type=number] {
+      padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; font-size: 14px; background: #fff;
+    }
+    .btn {
+      display: inline-block; padding: 9px 14px; border-radius: 9px; border: 1px solid var(--accent);
+      background: var(--accent); color: var(--accent-ink); font-size: 14px; font-weight: 600;
+      cursor: pointer; text-decoration: none; text-align: center;
+    }
+    .btn.secondary { background: transparent; color: var(--accent); }
+    .btn.small { padding: 6px 10px; font-size: 13px; }
+    .btn.danger { background: var(--red); border-color: var(--red); }
+
+    .scroll { overflow-x: auto; }
+    table.grid { border-collapse: collapse; width: 100%; font-size: 13px; }
+    table.grid th, table.grid td { border-bottom: 1px solid var(--line); padding: 8px 9px; text-align: left; white-space: nowrap; }
+    table.grid th { background: #eef2f6; position: sticky; top: 0; font-weight: 600; }
+    table.grid tr:hover td { background: #f8fafc; }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+    .pill.green  { background: var(--green-bg);  color: var(--green); }
+    .pill.yellow { background: var(--yellow-bg); color: var(--yellow); }
+    .pill.red    { background: var(--red-bg);    color: var(--red); }
+    .pill.gray   { background: var(--gray-bg);   color: var(--gray); }
+    .flag { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 6px; background: var(--yellow-bg); color: var(--yellow); margin-left: 4px; }
+
+    dl.kv { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; }
+    dl.kv dt { color: var(--muted); }
+    dl.kv dd { margin: 0; font-weight: 600; }
+
+    .thumbs { display: flex; flex-wrap: wrap; gap: 8px; }
+    .thumbs a img { height: 92px; border-radius: 8px; border: 1px solid var(--line); display: block; }
+    .report { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin: 0 0 12px; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+    .actions form { display: flex; gap: 6px; align-items: center; margin: 0; }
+    .reason { min-width: 180px; }
+    .toprow { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+  <header class="app">
+    <span class="brand">Контроль парка · кабинет сотрудника</span>
+    <span>
+      {% if user.is_authenticated %}
+        <a href="{% url 'staff_dashboard' %}">Дашборд</a>
+        &nbsp;·&nbsp; {{ user.get_username }}
+        &nbsp;·&nbsp; <a href="/admin/">Админка</a>
+        <form method="post" action="/admin/logout/" style="display:inline">
+          {% csrf_token %}<button type="submit">Выход</button>
+        </form>
+      {% endif %}
+    </span>
+  </header>
+  <main class="wrap">
+    {% if messages %}
+      {% for m in messages %}
+        <div class="msg {{ m.tags }}">{{ m }}</div>
+      {% endfor %}
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

@@ -12,7 +12,7 @@ the server. Timezone `Europe/Moscow`. See [`docs/SPEC.md`](docs/SPEC.md) for the
 data contracts and [`docs/ROADMAP.md`](docs/ROADMAP.md) (Russian) for stage
 criteria and what is still open.
 
-## Current state — Stages 1–2 done
+## Current state — Stages 1–3 done
 
 What works and is proven on a live server:
 
@@ -43,11 +43,25 @@ What works and is proven on a live server:
   per-VIN access check (no public links).
 - **Demo data**: 10 vehicles, 2 tenants, 2 managers, 1 admin, assignments and
   maintenance records covering every §6 state.
-- **Django admin** as the staff back office, with manager querysets restricted to
+- **Django admin** as the raw back office, with manager querysets restricted to
   their own vehicles.
+- **Staff cabinet (§7)** at `/staff/`: a month dashboard (reporting-fleet size,
+  reports/photos submitted with completion share, overdue/due/no-base maintenance,
+  vehicles without a current reading), comparison with the previous month (numeric
+  diff and share; no percent when the prior base is zero; "month not finished" for
+  an incomplete current month); a control table with every §7 column and filters
+  (no report, overdue/due/no-base, readings/maintenance pending review, VIN/INN
+  search); a VIN card (general data, active assignment, assignment history, reports
+  with photos and comments, reading and maintenance history, correction log); staff
+  review of disputed readings and maintenance (accept/reject/correct with a
+  mandatory reason, the original kept in the audit log; rejecting maintenance never
+  changes the prior confirmed base); and export of the filtered table to Excel and
+  of a selected report with attachments to a ZIP. The **as-of cut** computes a
+  completed month on the last day of that month — history is never recomputed by
+  today's mileage. Every page, operation and download is access-checked server-side.
 
-Stage 3 (staff dashboard/indicators/exports) and Stage 4 (GPS import, deployment)
-are scaffolded in the models but not yet implemented. See the roadmap.
+Stage 4 (GPS Excel import, mass fleet onboarding, deployment) is scaffolded in the
+models but not yet implemented. See the roadmap.
 
 ## Quick start (local development)
 
@@ -65,8 +79,9 @@ python manage.py runserver
 
 - Driver cabinet: <http://127.0.0.1:8000/> — log in with
   INN `7700000001` + VIN `TRUCKFLEET0000001` (vehicle #1, green state).
-- Staff back office: <http://127.0.0.1:8000/admin/> — `admin` / `Fleet!demo2026`
-  (managers: `manager1`, `manager2`, same password).
+- Staff cabinet: <http://127.0.0.1:8000/staff/> — `admin` / `Fleet!demo2026`
+  (managers: `manager1`, `manager2`, same password). Raw back office remains at
+  <http://127.0.0.1:8000/admin/>.
 
 ### Production (PostgreSQL)
 
@@ -87,9 +102,9 @@ Automatic checks are mandatory for the maintenance calc, access rights and login
 Last real run:
 
 ```
-Found 48 test(s).
+Found 72 test(s).
 System check identified no issues (0 silenced).
-Ran 48 tests in 3.865s
+Ran 72 tests in 3.739s
 OK
 ```
 
@@ -132,6 +147,46 @@ attachments: 5 {'dashboard': 1, 'vehicle': 4}
 stored files under private_media/vehicles/000001_TRUCKFLEET0000001/reports/2026-10/report_1/
 ```
 
+### Live server check — staff cabinet (§7)
+
+Raw output from a running instance against the demo data (October 2026):
+
+```
+=== unauthenticated /staff/ ===
+HTTP 302 -> http://127.0.0.1:8111/admin/login/?next=/staff/
+=== admin login ===
+admin login: 302 -> http://127.0.0.1:8111/staff/
+
+=== admin dashboard, October 2026 — indicator tiles ===
+  10  Всего VIN в парке
+   1  Передали сведения · 10%
+   1  Передали фото ТС
+   9  Не передали отчёт
+   1  ТО просрочено
+   1  ТО требуется
+   6  Нет данных о ТО
+   6  Без актуального пробега
+comparison: 1 против 0 (разница +1, % не рассчитывается); доля 10% против —; Месяц не завершён
+maintenance pills in table: «До ТО осталось 15000 км», «Скоро ТО. Осталось 4000 км»,
+                            «ТО требуется сейчас», «ТО просрочено на 2500 км», «Нет данных о последнем ТО» ×6
+
+=== export ===
+export.xlsx: HTTP 200 type=…spreadsheetml.sheet size=6329  magic=504b (PK, zip)
+report/1/zip: HTTP 200 size=2102
+  entries: R-000001/{одометр.jpg, ракурс_спереди.jpg, ракурс_сзади.jpg,
+           ракурс_слева.jpg, ракурс_справа.jpg, manifest.txt}
+
+=== access isolation (manager1) ===
+own  VIN1 card: HTTP 200
+frgn VIN6 card: HTTP 404
+manager1 dashboard fleet size: 5
+report/1/zip as manager2 (not owner): HTTP 404
+
+=== staff correction with mandatory reason (admin) ===
+correct POST: HTTP 302 -> http://127.0.0.1:8111/staff/vehicle/1/
+audit: reading.correct | 155000 км -> 156000 км | фото читается как 156000 | admin
+```
+
 ## Project layout
 
 ```
@@ -147,14 +202,23 @@ fleet/               core domain
   storage.py         closed file storage, server-generated paths (§9)
   fileaccess.py      per-VIN protected file serving (§9)
   access.py          role/visibility isolation and active-pair login (§4, §7)
-  admin.py           staff back office, manager-scoped querysets
+  asof.py            as-of cut selection for a month (pure, host-tested) (§7)
+  metrics.py         month-over-month comparison (pure, host-tested) (§7)
+  dashboard.py       reporting fleet, indicators, control-table rows (§7)
+  review.py          staff review of disputed readings/maintenance + audit (§6, §7)
+  exports.py         filtered table → .xlsx, report → .zip (§7)
+  admin.py           raw back office, manager-scoped querysets
   management/commands/seed_demo.py
   tests.py
 drivers/             driver cabinet
   views.py           login, session, home, protected file views
   report_views.py    four-screen report flow (§5)
   session.py ratelimit.py forms.py
+staff/               staff cabinet (§7)
+  views.py           dashboard, control table, VIN card, review, exports, files
+  urls.py
 templates/drivers/   mobile-first templates (≥360px, Russian)
+templates/staff/     staff cabinet templates (dashboard, VIN card, Russian)
 docs/                SPEC.md (contracts), ROADMAP.md (stages, Russian)
 ```
 

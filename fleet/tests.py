@@ -510,3 +510,297 @@ class DriverReportE2ETests(TestCase):
         # Текущая сессия вошла на VIN ...0001, пытается тянуть файл ...0002.
         resp = self.client.get(reverse("driver_file", args=[att.id]))
         self.assertEqual(resp.status_code, 404)
+
+
+# =============================================================================
+# Шаг 3 — кабинет сотрудников (ТЗ §7). Чистая логика сверяется с литералами из
+# спецификации, а не с собственной арифметикой.
+# =============================================================================
+
+from .asof import accepted_reading_asof, confirmed_maint_asof
+from .metrics import compare_months, completion_share
+from . import dashboard as dash
+from . import review, exports
+from .models import Attachment, Maintenance, OdometerReading, Report
+
+
+class AsOfTests(TestCase):
+    """ТЗ §7: срез на дату не пересчитывается по сегодняшнему пробегу."""
+
+    def test_accepted_reading_picks_latest_not_after_cut(self):
+        readings = [
+            (150000, date(2026, 8, 10), "driver"),
+            (170000, date(2026, 9, 15), "driver"),
+            (180000, date(2026, 10, 5), "gps"),   # позже среза — игнор
+        ]
+        self.assertEqual(
+            accepted_reading_asof(readings, date(2026, 9, 30)),
+            (170000, date(2026, 9, 15), "driver"),
+        )
+
+    def test_accepted_reading_none_before_any(self):
+        readings = [(170000, date(2026, 9, 15), "driver")]
+        self.assertIsNone(accepted_reading_asof(readings, date(2026, 8, 31)))
+
+    def test_asof_ignores_maintenance_after_cut(self):
+        # База на 31.08 — ТО от 10.05 (120000), а не выполненное 20.09 (170000).
+        # Сломать: убрать фильтр performed_on <= cut — вернётся (170000, ...).
+        maints = [(120000, date(2026, 5, 10)), (170000, date(2026, 9, 20))]
+        self.assertEqual(
+            confirmed_maint_asof(maints, date(2026, 8, 31)),
+            (120000, date(2026, 5, 10)),
+        )
+
+
+class MetricsTests(TestCase):
+    """ТЗ §7: сравнение месяцев. Значения — из правил, целиком."""
+
+    def test_completion_share_and_zero_fleet(self):
+        self.assertEqual(completion_share(8, 10), 80.0)
+        self.assertIsNone(completion_share(5, 0))  # деления на нуль нет
+
+    def test_compare_full_month(self):
+        c = compare_months(8, 10, 5, 10, current_month_complete=True)
+        self.assertEqual(c.diff_submitted, 3)
+        self.assertEqual(c.pct_change, 60.0)
+        self.assertEqual(c.current_share, 80.0)
+        self.assertEqual(c.prior_share, 50.0)
+        self.assertEqual(c.note, "")
+
+    def test_zero_prior_base_no_percent(self):
+        c = compare_months(4, 10, 0, 10, current_month_complete=True)
+        self.assertIsNone(c.pct_change)  # процент изменения не рассчитывается
+        self.assertEqual(c.diff_submitted, 4)
+
+    def test_incomplete_current_month_note(self):
+        c = compare_months(2, 10, 7, 10, current_month_complete=False)
+        self.assertEqual(c.note, "Месяц не завершён")
+
+
+class _FleetMixin:
+    """Небольшой парк для интеграционных проверок дашборда и кабинета."""
+
+    def make_fleet(self):
+        User = get_user_model()
+        Group.objects.get_or_create(name=ADMIN_GROUP)
+        mg, _ = Group.objects.get_or_create(name=MANAGER_GROUP)
+        self.admin = User.objects.create_user("adm", is_staff=True, is_superuser=True)
+        self.m1 = User.objects.create_user("mg1", is_staff=True)
+        self.m2 = User.objects.create_user("mg2", is_staff=True)
+        self.m1.groups.add(mg)
+        self.m2.groups.add(mg)
+
+        self.tenant = Tenant.objects.create(inn="7700000001")
+        self.vehicle = Vehicle.objects.create(
+            vin="TRUCKFLEET0000001", plate="A001AA", maintenance_interval_km=50000
+        )
+        self.assignment = Assignment.objects.create(
+            vehicle=self.vehicle, tenant=self.tenant,
+            started_at=timezone.make_aware(timezone.datetime(2026, 8, 1, 9, 0)),
+        )
+        ManagerAssignment.objects.create(
+            assignment=self.assignment, manager=self.m1,
+            started_at=self.assignment.started_at,
+        )
+
+        # База ТО 120000 (подтверждено, выполнено до среза).
+        Maintenance.objects.create(
+            vehicle=self.vehicle, performed_on=date(2026, 7, 1), mileage_km=120000,
+            status=Maintenance.Status.CONFIRMED, basis=Maintenance.Basis.INITIAL,
+        )
+        # Принятый пробег 170000 на 15.09 → остаток 0 (ТЗ §6: «ТО требуется сейчас»).
+        OdometerReading.objects.create(
+            vehicle=self.vehicle, source=OdometerReading.Source.DRIVER,
+            value_km=170000, measured_at=date(2026, 9, 15),
+            verification=OdometerReading.Verification.ACCEPTED,
+        )
+        # Позже среза — не должно влиять на сентябрьский дашборд.
+        OdometerReading.objects.create(
+            vehicle=self.vehicle, source=OdometerReading.Source.GPS,
+            value_km=180000, measured_at=date(2026, 10, 5),
+            verification=OdometerReading.Verification.ACCEPTED,
+        )
+        # Отправленный отчёт за сентябрь с четырьмя ракурсами и комментарием.
+        self.report = Report.objects.create(
+            vehicle=self.vehicle, assignment=self.assignment,
+            period_month=date(2026, 9, 1), state=Report.State.SUBMITTED,
+            odometer_value_km=170000, defects=Report.Defects.HAS,
+            comment="скол на бампере",
+            submitted_at=timezone.make_aware(timezone.datetime(2026, 9, 20, 10, 0)),
+            idempotency_key="k-sep",
+        )
+        for v in (Attachment.View.FRONT, Attachment.View.BACK,
+                  Attachment.View.LEFT, Attachment.View.RIGHT):
+            Attachment.objects.create(
+                report=self.report, kind=Attachment.Kind.VEHICLE, view=v,
+                stored_path=f"x_{v}", content_type="image/jpeg", size_bytes=1,
+            )
+        self.today = date(2026, 10, 2)  # сентябрь завершён
+
+
+class DashboardTests(_FleetMixin, TestCase):
+    """ТЗ §7: дашборд, срез завершённого месяца, таблица, фильтры, область видимости."""
+
+    def setUp(self):
+        self.make_fleet()
+
+    def test_completed_month_cut_and_indicators(self):
+        d = dash.build_dashboard(self.admin, "2026-09", None, {}, self.today)
+        self.assertEqual(d.cut, date(2026, 9, 30))
+        self.assertTrue(d.complete)
+        self.assertEqual(d.indicators.fleet_total, 1)
+        self.assertEqual(d.indicators.submitted, 1)
+        self.assertEqual(d.indicators.photos, 1)
+        self.assertEqual(d.indicators.not_submitted, 0)
+        self.assertEqual(d.indicators.due, 1)  # остаток 0
+
+    def test_as_of_mileage_not_recomputed_by_today(self):
+        # Сломать: считать по сегодняшнему пробегу — пробег станет 180000.
+        d = dash.build_dashboard(self.admin, "2026-09", None, {}, self.today)
+        row = d.rows[0]
+        self.assertEqual(row.mileage_km, 170000)
+        self.assertEqual(row.maint.text, "ТО требуется сейчас")
+
+    def test_manager_scope(self):
+        d1 = dash.build_dashboard(self.m1, "2026-09", None, {}, self.today)
+        d2 = dash.build_dashboard(self.m2, "2026-09", None, {}, self.today)
+        self.assertEqual(d1.indicators.fleet_total, 1)
+        self.assertEqual(d2.indicators.fleet_total, 0)  # чужой парк не виден
+
+    def test_filters(self):
+        no_report = dash.build_dashboard(
+            self.admin, "2026-09", None, {"flag": "no_report"}, self.today
+        )
+        self.assertEqual(len(no_report.rows), 0)  # отчёт есть
+        due = dash.build_dashboard(
+            self.admin, "2026-09", None, {"flag": "due"}, self.today
+        )
+        self.assertEqual(len(due.rows), 1)
+
+    def test_comparison_zero_prior(self):
+        d = dash.build_dashboard(self.admin, "2026-09", None, {}, self.today)
+        # В августе отчётов не было → процент изменения не считается.
+        self.assertIsNone(d.comparison.pct_change)
+
+
+class ReviewTests(_FleetMixin, TestCase):
+    """ТЗ §6, §7, §11: проверка показаний и ТО, аудит, сохранение базы."""
+
+    def setUp(self):
+        self.make_fleet()
+        self.pending = OdometerReading.objects.create(
+            vehicle=self.vehicle, source=OdometerReading.Source.DRIVER,
+            value_km=250000, measured_at=date(2026, 9, 18),
+            verification=OdometerReading.Verification.PENDING, note="скачок",
+        )
+
+    def test_accept_reading_logs_audit(self):
+        review.decide_reading(self.pending, self.m1, accept=True)
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.verification, OdometerReading.Verification.ACCEPTED)
+        from .models import AuditLog
+        self.assertTrue(AuditLog.objects.filter(action="reading.accept").exists())
+
+    def test_correct_requires_reason(self):
+        with self.assertRaises(ValueError):
+            review.correct_reading(self.pending, self.m1, 171000, "")
+
+    def test_correct_preserves_original_in_audit(self):
+        review.correct_reading(self.pending, self.m1, 171000, "фото читается как 171000")
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.value_km, 171000)
+        from .models import AuditLog
+        e = AuditLog.objects.get(action="reading.correct")
+        self.assertEqual(e.old_value, "250000 км")  # исходное сохранено
+
+    def test_reject_maintenance_keeps_prior_base(self):
+        reported = Maintenance.objects.create(
+            vehicle=self.vehicle, performed_on=date(2026, 9, 1), mileage_km=172000,
+            status=Maintenance.Status.REPORTED, basis=Maintenance.Basis.DRIVER,
+        )
+        review.decide_maintenance(reported, self.m1, confirm=False, reason="нет документа")
+        reported.refresh_from_db()
+        self.assertEqual(reported.status, Maintenance.Status.REJECTED)
+        # Прежняя подтверждённая база 120000 цела.
+        self.assertTrue(
+            Maintenance.objects.filter(
+                vehicle=self.vehicle, mileage_km=120000,
+                status=Maintenance.Status.CONFIRMED,
+            ).exists()
+        )
+
+    def test_confirm_maintenance_sets_base(self):
+        reported = Maintenance.objects.create(
+            vehicle=self.vehicle, performed_on=date(2026, 9, 1), mileage_km=172000,
+            status=Maintenance.Status.REPORTED, basis=Maintenance.Basis.DRIVER,
+        )
+        review.decide_maintenance(reported, self.m1, confirm=True)
+        reported.refresh_from_db()
+        self.assertEqual(reported.status, Maintenance.Status.CONFIRMED)
+        self.assertIsNotNone(reported.confirmed_at)
+
+
+class ExportTests(_FleetMixin, TestCase):
+    """ТЗ §7: экспорт таблицы в Excel и отчёта в ZIP."""
+
+    def setUp(self):
+        self.make_fleet()
+
+    def test_xlsx_is_zip_container(self):
+        d = dash.build_dashboard(self.admin, "2026-09", None, {}, self.today)
+        blob = exports.control_table_xlsx(d.rows, d.month_first)
+        self.assertEqual(blob[:2], b"PK")  # .xlsx — это zip
+
+    def test_report_zip_has_manifest(self):
+        import io, zipfile
+        blob = exports.report_zip(self.report)
+        self.assertEqual(blob[:2], b"PK")
+        names = zipfile.ZipFile(io.BytesIO(blob)).namelist()
+        self.assertIn(f"{self.report.number}/manifest.txt", names)
+
+
+class StaffViewTests(_FleetMixin, TestCase):
+    """ТЗ §4, §7, §11: страницы кабинета, изоляция, экспорт по правам."""
+
+    def setUp(self):
+        self.make_fleet()
+        self.client = Client()
+        # Чужое ТС под m2 для проверки прямого запроса.
+        self.foreign = Vehicle.objects.create(vin="TRUCKFLEET0000002")
+        fa = Assignment.objects.create(
+            vehicle=self.foreign, tenant=self.tenant,
+            started_at=self.assignment.started_at,
+        )
+        ManagerAssignment.objects.create(
+            assignment=fa, manager=self.m2, started_at=fa.started_at
+        )
+
+    def test_dashboard_requires_login(self):
+        resp = self.client.get(reverse("staff_dashboard"))
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn("/admin/login/", resp.headers["Location"])
+
+    def test_admin_dashboard_ok(self):
+        self.client.force_login(self.admin)
+        resp = self.client.get(reverse("staff_dashboard") + "?month=2026-09")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "TRUCKFLEET0000001")
+
+    def test_manager_cannot_open_foreign_card(self):
+        self.client.force_login(self.m1)
+        own = self.client.get(reverse("staff_vehicle_card", args=[self.vehicle.id]))
+        self.assertEqual(own.status_code, 200)
+        foreign = self.client.get(reverse("staff_vehicle_card", args=[self.foreign.id]))
+        self.assertEqual(foreign.status_code, 404)
+
+    def test_export_xlsx_download(self):
+        self.client.force_login(self.admin)
+        resp = self.client.get(reverse("staff_export_xlsx") + "?month=2026-09")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("spreadsheetml", resp.headers["Content-Type"])
+
+    def test_report_zip_access(self):
+        self.client.force_login(self.m2)
+        # m2 не владеет отчётом ТС №1 → 404.
+        resp = self.client.get(reverse("staff_report_zip", args=[self.report.id]))
+        self.assertEqual(resp.status_code, 404)

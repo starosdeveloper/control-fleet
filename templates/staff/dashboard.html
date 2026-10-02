@@ -1,0 +1,137 @@
+{% extends "staff/base.html" %}
+{% block title %}Дашборд {{ month_value }}{% endblock %}
+{% block content %}
+
+<div class="toprow">
+  <h1>Контроль парка — {{ data.month_first|date:"m.Y" }}</h1>
+  <span class="muted">
+    Срез на {{ data.cut|date:"d.m.Y" }}{% if not data.complete %} · {{ data.comparison.note }}{% endif %}
+  </span>
+</div>
+
+<form method="get" class="card">
+  <div class="toolbar">
+    <div class="fld">
+      <label>Месяц</label>
+      <select name="month">
+        {% for m in months %}
+          <option value="{{ m.value }}" {% if m.value == month_value %}selected{% endif %}>{{ m.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% if is_admin %}
+    <div class="fld">
+      <label>Менеджер</label>
+      <select name="manager">
+        <option value="">все</option>
+        {% for mgr in managers %}
+          <option value="{{ mgr.id }}" {% if mgr.id == manager_id %}selected{% endif %}>{{ mgr.username }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+    <div class="fld">
+      <label>Поиск VIN / ИНН</label>
+      <input type="text" name="q" value="{{ filters.q }}" placeholder="VIN или ИНН">
+    </div>
+    <div class="fld">
+      <label>Фильтр</label>
+      <select name="flag">
+        <option value="">— без фильтра —</option>
+        <option value="no_report" {% if filters.flag == "no_report" %}selected{% endif %}>нет отчёта</option>
+        <option value="overdue" {% if filters.flag == "overdue" %}selected{% endif %}>ТО просрочено</option>
+        <option value="due" {% if filters.flag == "due" %}selected{% endif %}>ТО требуется</option>
+        <option value="no_base" {% if filters.flag == "no_base" %}selected{% endif %}>нет базы ТО</option>
+        <option value="pending_reading" {% if filters.flag == "pending_reading" %}selected{% endif %}>показания на проверке</option>
+        <option value="pending_maint" {% if filters.flag == "pending_maint" %}selected{% endif %}>ТО на проверке</option>
+      </select>
+    </div>
+    <button class="btn" type="submit">Показать</button>
+    <a class="btn secondary" href="{% url 'staff_export_xlsx' %}?month={{ month_value }}{% if manager_id %}&manager={{ manager_id }}{% endif %}{% if filters.q %}&q={{ filters.q }}{% endif %}{% if filters.flag %}&flag={{ filters.flag }}{% endif %}">Экспорт в Excel</a>
+  </div>
+</form>
+
+{% with ind=data.indicators cmp=data.comparison %}
+<div class="tiles">
+  <div class="tile"><div class="n">{{ ind.fleet_total }}</div><div class="l">Всего VIN в парке</div></div>
+  <div class="tile green">
+    <div class="n">{{ ind.submitted }}</div>
+    <div class="l">Передали сведения{% if cmp.current_share != None %} · {{ cmp.current_share|floatformat:0 }}%{% endif %}</div>
+  </div>
+  <div class="tile"><div class="n">{{ ind.photos }}</div><div class="l">Передали фото ТС</div></div>
+  <div class="tile red"><div class="n">{{ ind.not_submitted }}</div><div class="l">Не передали отчёт</div></div>
+  <div class="tile red"><div class="n">{{ ind.overdue }}</div><div class="l">ТО просрочено</div></div>
+  <div class="tile red"><div class="n">{{ ind.due }}</div><div class="l">ТО требуется</div></div>
+  <div class="tile gray"><div class="n">{{ ind.no_maint_base }}</div><div class="l">Нет данных о ТО</div></div>
+  <div class="tile gray"><div class="n">{{ ind.no_current_mileage }}</div><div class="l">Без актуального пробега</div></div>
+</div>
+
+<div class="card" style="margin-top:14px">
+  <h2>Сравнение с прошлым месяцем</h2>
+  <dl class="kv">
+    <dt>Передали сведений</dt>
+    <dd>
+      {{ cmp.current_submitted }} против {{ cmp.prior_submitted }}
+      (разница {{ cmp.diff_submitted|stringformat:"+d" }}{% if cmp.pct_change != None %}, {{ cmp.pct_change|floatformat:0 }}%{% else %}, % не рассчитывается{% endif %})
+    </dd>
+    <dt>Доля выполнения</dt>
+    <dd>
+      {% if cmp.current_share != None %}{{ cmp.current_share|floatformat:0 }}%{% else %}—{% endif %}
+      против
+      {% if cmp.prior_share != None %}{{ cmp.prior_share|floatformat:0 }}%{% else %}—{% endif %}
+    </dd>
+    {% if not data.complete %}
+    <dt>Примечание</dt><dd>{{ cmp.note }}</dd>
+    {% endif %}
+  </dl>
+</div>
+{% endwith %}
+
+<div class="card">
+  <h2>Таблица контроля — {{ data.rows|length }} строк</h2>
+  <div class="scroll">
+  <table class="grid">
+    <thead>
+      <tr>
+        <th>ID</th><th>VIN</th><th>Госномер</th><th>ИНН</th><th>Менеджер</th>
+        <th>Посл. отчёт</th><th class="num">Пробег</th><th>Дата / источник</th>
+        <th>Дата ТО</th><th class="num">Пробег ТО</th><th class="num">След. ТО</th>
+        <th class="num">Остаток</th><th>Статус ТО</th>
+        <th>Отчёт</th><th>Фото</th><th>Комм.</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in data.rows %}
+      <tr>
+        <td>{{ row.vehicle.id }}</td>
+        <td><a href="{% url 'staff_vehicle_card' row.vehicle.id %}">{{ row.vehicle.vin }}</a>
+          {% if row.pending_reading %}<span class="flag">пробег?</span>{% endif %}
+          {% if row.pending_maint %}<span class="flag">ТО?</span>{% endif %}
+        </td>
+        <td>{{ row.vehicle.plate|default:"—" }}</td>
+        <td>{{ row.tenant_inn|default:"—" }}</td>
+        <td>{{ row.manager_name|default:"—" }}</td>
+        <td>{% if row.last_report_date %}{{ row.last_report_date|date:"d.m.Y" }}{% else %}—{% endif %}</td>
+        <td class="num">{% if row.mileage_km != None %}{{ row.mileage_km }}{% else %}—{% endif %}</td>
+        <td>
+          {% if row.mileage_date %}{{ row.mileage_date|date:"d.m.Y" }}{% else %}—{% endif %}
+          {% if row.mileage_source == "driver" %}· водитель{% elif row.mileage_source == "gps" %}· GPS{% elif row.mileage_source == "manual" %}· ручной{% endif %}
+        </td>
+        <td>{% if row.maint_date %}{{ row.maint_date|date:"d.m.Y" }}{% else %}—{% endif %}</td>
+        <td class="num">{% if row.maint_mileage_km != None %}{{ row.maint_mileage_km }}{% else %}—{% endif %}</td>
+        <td class="num">{% if row.maint.next_due_km != None %}{{ row.maint.next_due_km }}{% else %}—{% endif %}</td>
+        <td class="num">{% if row.maint.remainder_km != None %}{{ row.maint.remainder_km }}{% else %}—{% endif %}</td>
+        <td><span class="pill {{ row.maint.color.value }}">{{ row.maint.text }}</span></td>
+        <td>{% if row.reported_in_month %}да{% else %}<span class="pill red">нет</span>{% endif %}</td>
+        <td>{% if row.photos_in_month %}да{% else %}—{% endif %}</td>
+        <td>{% if row.has_comment %}есть{% else %}—{% endif %}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="16" class="muted">Нет ТС под текущие фильтры.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+{% endblock %}

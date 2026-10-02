@@ -1,0 +1,225 @@
+{% extends "staff/base.html" %}
+{% block title %}VIN {{ vehicle.vin }}{% endblock %}
+{% block content %}
+
+<div class="toprow">
+  <h1>VIN {{ vehicle.vin }}</h1>
+  <a class="btn secondary small" href="{% url 'staff_dashboard' %}">← К таблице</a>
+</div>
+
+<div class="card">
+  <h2>Общие данные</h2>
+  <dl class="kv">
+    <dt>ID ТС</dt><dd>{{ vehicle.id }}</dd>
+    <dt>Госномер</dt><dd>{{ vehicle.plate|default:"—" }}</dd>
+    <dt>Модель</dt><dd>{{ vehicle.model|default:"—" }}</dd>
+    <dt>Тип</dt><dd>{{ vehicle.vehicle_type|default:"—" }}</dd>
+    <dt>Интервал ТО</dt><dd>{{ vehicle.maintenance_interval_km }} км</dd>
+    <dt>Статус</dt><dd>{{ vehicle.get_status_display }}</dd>
+    <dt>Состояние ТО</dt>
+    <dd><span class="pill {{ maint.color.value }}">{{ maint.text }}</span></dd>
+    <dt>Актуальный пробег</dt>
+    <dd>{% if cur_reading %}{{ cur_reading.0 }} км от {{ cur_reading.1|date:"d.m.Y" }}{% else %}нет принятого{% endif %}</dd>
+  </dl>
+</div>
+
+<div class="card">
+  <h2>Действующее назначение</h2>
+  {% if active_assignment %}
+    <dl class="kv">
+      <dt>Арендатор (ИНН)</dt><dd>{{ active_assignment.tenant.inn }}</dd>
+      <dt>Менеджер</dt><dd>{{ active_assignment.manager.get_username|default:"—" }}</dd>
+      <dt>Начало</dt><dd>{{ active_assignment.started_at|date:"d.m.Y" }}</dd>
+    </dl>
+  {% else %}
+    <p class="muted">Действующего назначения нет.</p>
+  {% endif %}
+
+  <h3>История назначений</h3>
+  <div class="scroll">
+  <table class="grid">
+    <thead><tr><th>ИНН</th><th>Менеджер</th><th>Начало</th><th>Конец</th><th>Статус</th></tr></thead>
+    <tbody>
+      {% for a in assignments %}
+      <tr>
+        <td>{{ a.tenant.inn }}</td>
+        <td>{{ a.manager.get_username|default:"—" }}</td>
+        <td>{{ a.started_at|date:"d.m.Y" }}</td>
+        <td>{% if a.ended_at %}{{ a.ended_at|date:"d.m.Y" }}{% else %}—{% endif %}</td>
+        <td>{% if a.is_active %}<span class="pill green">действует</span>{% else %}<span class="pill gray">закрыто</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+{% if pending_readings or pending_maints %}
+<div class="card">
+  <h2>На проверке</h2>
+
+  {% for r in pending_readings %}
+  <div class="report">
+    <div class="toprow">
+      <strong>Пробег {{ r.value_km }} км</strong>
+      <span class="muted">{{ r.measured_at|date:"d.m.Y" }} · {{ r.get_source_display }}</span>
+    </div>
+    {% if r.note %}<div class="muted">Причина проверки: {{ r.note }}</div>{% endif %}
+    <div class="actions">
+      <form method="post" action="{% url 'staff_reading_decide' r.id %}">
+        {% csrf_token %}<input type="hidden" name="action" value="accept">
+        <button class="btn small" type="submit">Принять</button>
+      </form>
+      <form method="post" action="{% url 'staff_reading_decide' r.id %}">
+        {% csrf_token %}<input type="hidden" name="action" value="reject">
+        <input class="reason" type="text" name="reason" placeholder="причина (необяз.)">
+        <button class="btn small danger" type="submit">Отклонить</button>
+      </form>
+      <form method="post" action="{% url 'staff_reading_decide' r.id %}">
+        {% csrf_token %}<input type="hidden" name="action" value="correct">
+        <input type="number" name="new_value" placeholder="верный км" style="width:110px">
+        <input class="reason" type="text" name="reason" placeholder="причина исправления">
+        <button class="btn small secondary" type="submit">Исправить</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+
+  {% for m in pending_maints %}
+  <div class="report">
+    <div class="toprow">
+      <strong>ТО {{ m.performed_on|date:"d.m.Y" }} · {{ m.mileage_km }} км</strong>
+      <span class="muted">основание: {{ m.get_basis_display }}{% if m.no_document %} · нет документа{% endif %}</span>
+    </div>
+    {% if m.work_order_no %}<div class="muted">Заказ-наряд: {{ m.work_order_no }}</div>{% endif %}
+    {% if m.reason %}<div class="muted">{{ m.reason }}</div>{% endif %}
+    {% if m.attachments.all %}
+    <div class="thumbs">
+      {% for a in m.attachments.all %}
+        <a href="{% url 'staff_file' a.id %}" target="_blank"><img src="{% url 'staff_file_thumb' a.id %}" alt="документ"></a>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <div class="actions">
+      <form method="post" action="{% url 'staff_maintenance_decide' m.id %}">
+        {% csrf_token %}<input type="hidden" name="action" value="confirm">
+        <button class="btn small" type="submit">Подтвердить</button>
+      </form>
+      <form method="post" action="{% url 'staff_maintenance_decide' m.id %}">
+        {% csrf_token %}<input type="hidden" name="action" value="reject">
+        <input class="reason" type="text" name="reason" placeholder="причина (необяз.)">
+        <button class="btn small danger" type="submit">Отклонить</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>Отчёты</h2>
+  {% for b in reports %}
+  <div class="report">
+    <div class="toprow">
+      <strong>{{ b.report.number }} · {{ b.report.period_month|date:"m.Y" }}</strong>
+      <span>
+        <span class="muted">отправлен {{ b.report.submitted_at|date:"d.m.Y H:i" }}</span>
+        <a class="btn small secondary" href="{% url 'staff_report_zip' b.report.id %}">Скачать ZIP</a>
+      </span>
+    </div>
+    <dl class="kv" style="margin-top:8px">
+      <dt>Показание</dt><dd>{{ b.report.odometer_value_km }} км</dd>
+      <dt>Замечания</dt><dd>{{ b.report.get_defects_display }}</dd>
+      {% if b.report.comment %}<dt>Комментарий</dt><dd>{{ b.report.comment }}</dd>{% endif %}
+      {% if b.report.maint_choice %}<dt>ТО</dt><dd>{{ b.report.get_maint_choice_display }}</dd>{% endif %}
+    </dl>
+    {% if b.dashboard or b.views or b.defects or b.docs %}
+    <div class="thumbs" style="margin-top:8px">
+      {% for a in b.dashboard %}<a href="{% url 'staff_file' a.id %}" target="_blank"><img src="{% url 'staff_file_thumb' a.id %}" alt="одометр"></a>{% endfor %}
+      {% for a in b.views %}<a href="{% url 'staff_file' a.id %}" target="_blank"><img src="{% url 'staff_file_thumb' a.id %}" alt="{{ a.get_view_display }}"></a>{% endfor %}
+      {% for a in b.defects %}<a href="{% url 'staff_file' a.id %}" target="_blank"><img src="{% url 'staff_file_thumb' a.id %}" alt="дефект"></a>{% endfor %}
+      {% for a in b.docs %}<a href="{% url 'staff_file' a.id %}" target="_blank"><img src="{% url 'staff_file_thumb' a.id %}" alt="документ"></a>{% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% empty %}
+  <p class="muted">Отправленных отчётов нет.</p>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <h2>История показаний</h2>
+  <div class="scroll">
+  <table class="grid">
+    <thead><tr><th>Дата</th><th class="num">Пробег</th><th>Источник</th><th>Проверка</th><th>Решение</th><th>Примечание</th></tr></thead>
+    <tbody>
+      {% for r in readings %}
+      <tr>
+        <td>{{ r.measured_at|date:"d.m.Y" }}</td>
+        <td class="num">{{ r.value_km }}</td>
+        <td>{{ r.get_source_display }}</td>
+        <td>
+          {% if r.verification == "accepted" %}<span class="pill green">принято</span>
+          {% elif r.verification == "pending" %}<span class="pill yellow">на проверке</span>
+          {% else %}<span class="pill red">отклонено</span>{% endif %}
+        </td>
+        <td>{{ r.staff_decision_by.get_username|default:"—" }}</td>
+        <td>{{ r.note|default:"" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<div class="card">
+  <h2>История ТО</h2>
+  <div class="scroll">
+  <table class="grid">
+    <thead><tr><th>Дата</th><th class="num">Пробег</th><th>Статус</th><th>Основание</th><th>Заказ-наряд</th><th>Подтвердил</th></tr></thead>
+    <tbody>
+      {% for m in maintenances %}
+      <tr>
+        <td>{{ m.performed_on|date:"d.m.Y" }}</td>
+        <td class="num">{{ m.mileage_km }}</td>
+        <td>
+          {% if m.status == "confirmed" %}<span class="pill green">подтверждено</span>
+          {% elif m.status == "reported" %}<span class="pill yellow">на проверке</span>
+          {% else %}<span class="pill red">отклонено</span>{% endif %}
+        </td>
+        <td>{{ m.get_basis_display }}</td>
+        <td>{{ m.work_order_no|default:"—" }}</td>
+        <td>{{ m.confirmed_by.get_username|default:"—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Журнал исправлений</h2>
+  {% if audit %}
+  <div class="scroll">
+  <table class="grid">
+    <thead><tr><th>Время</th><th>Сотрудник</th><th>Действие</th><th>Было</th><th>Стало</th><th>Причина</th></tr></thead>
+    <tbody>
+      {% for e in audit %}
+      <tr>
+        <td>{{ e.created_at|date:"d.m.Y H:i" }}</td>
+        <td>{{ e.staff.get_username|default:"—" }}</td>
+        <td>{{ e.action }}</td>
+        <td>{{ e.old_value|default:"—" }}</td>
+        <td>{{ e.new_value|default:"—" }}</td>
+        <td>{{ e.reason|default:"—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="muted">Исправлений не было.</p>
+  {% endif %}
+</div>
+
+{% endblock %}
