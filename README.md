@@ -82,8 +82,28 @@ What works and is proven on a live server:
   the mileage/maintenance calculation. Import never creates photos, confirms
   maintenance or marks a monthly report done; driver and GPS readings never overwrite
   each other.
+- **Mass fleet onboarding from Excel (§7)**, admin-only at `/staff/import/fleet/`:
+  one file connects VIN, INN, manager, plate, model, an optional initial mileage +
+  reading date, and an optional initial maintenance date + mileage — the nine
+  columns §7 lists. VIN/INN/manager are required; the two value pairs are each
+  all-or-nothing (both cells blank is valid — no pair; one blank is an error).
+  Number/date parsing reuses the GPS importer's rules (spaces, floor fractions,
+  reject formulas and future dates) instead of duplicating them. Preview
+  classifies every row as ready (will create/reopen the vehicle) / already
+  connected to this same tenant (skipped) / conflict — already connected to a
+  *different* tenant (left untouched; bulk import never tears down a live
+  assignment) / error (bad format, unknown manager, an incomplete pair, repeated
+  VIN within the file, maintenance mileage above the reading). Applying a ready
+  row creates the vehicle (if new), the tenant (`get_or_create` by INN), the
+  assignment, the manager assignment, and — when given — a `source=manual`
+  accepted reading and a `confirmed`/`initial` maintenance record, the same shape
+  `seed_demo` uses for bootstrap data. `ImportBatch.kind` now distinguishes `gps`
+  from `fleet` batches on the shared batches page; reverting a fleet batch is
+  deliberately refused with a clear message instead of attempted — unwinding
+  created vehicles/assignments isn't the same operation as toggling a GPS
+  reading's visibility, so it's not pretended to work.
 
-Stage 4 still open: mass fleet onboarding via Excel (§7) and deployment (domain,
+Stage 4 still open: deployment (domain,
 HTTPS, daily backups with restore test, pilot) — see the roadmap.
 
 ## Quick start (local development)
@@ -125,9 +145,9 @@ Automatic checks are mandatory for the maintenance calc, access rights and login
 Last real run:
 
 ```
-Found 87 test(s).
+Found 108 test(s).
 System check identified no issues (0 silenced).
-Ran 87 tests in 4.668s
+Ran 108 tests in 3.588s
 OK
 ```
 
@@ -231,7 +251,8 @@ DB after apply:
   batch 1 status active summary.counts {'total': 3,'ready': 1,'review': 1,'duplicate': 0,'error': 1}
   reading 120000 gps accepted
   reading 125000 gps pending | конфликт за дату: есть принятое 120000 км, во вводе 125000 км
-errors.xlsx (HTTP 200): («№ строки», 'VIN', 'Значение', 'Причина'); (4, 'NOSUCHVIN00000001', '100000', 'неизвестный VIN')
+errors.xlsx (HTTP 200): ('№ строки','VIN','Поле','Значение','Причина'); (4,'NOSUCHVIN00000001',None,'100000','неизвестный VIN')
+  # "Поле" column added when errors_xlsx became shared with the fleet onboarding importer
 
 re-upload same file: 0 готово / 0 проверка / 2 дубля / 1 ошибка   (no duplicates created)
 
@@ -239,6 +260,46 @@ revert batch 1 (reason "ошибочная выгрузка"): 302
   VIN5 accepted-in-calc: []            # excluded from calculation
   VIN5 history: [(125000,'pending'), (120000,'accepted')]   # kept in history
 audit: import.apply {…} ; import.revert | ошибочная выгрузка
+```
+
+### Live server check — mass fleet onboarding (§7)
+
+Raw output from a running instance (admin, demo data; VIN1/VIN2 already connected
+to tenant `7700000001` by seed data):
+
+```
+template.xlsx: HTTP 200 size=5186 magic=504b (PK)
+
+preview of a 4-row file:
+  row1 TRUCKFLEET0000020 / 7700000003 (new tenant) / manager1           -> ready
+  row2 TRUCKFLEET0000001 / 7700000001 (same tenant as live)             -> exists
+  row3 TRUCKFLEET0000002 / 500100732259 (different tenant than live)    -> conflict
+  row4 TRUCKFLEET0000021 / 7700000003 / ghost_person (unknown manager)  -> error
+   4  Найдено строк
+   1  Будет подключено
+   1  Уже подключено
+   1  Конфликт арендатора
+   1  Ошибки
+
+apply: 302 -> /staff/import/batches/
+DB after apply:
+  batch 2 fleet active {'total':4,'ready':1,'exists':1,'conflict':1,'error':1}
+  new vehicle: TRUCKFLEET0000020 В020ВВ750 MAN TGX
+    assignment tenant 7700000003, manager manager1
+    reading (140000, 'manual', 'accepted')
+    maintenance (120000, 'confirmed', 'initial')
+  existing VIN1 assignment untouched: tenant 7700000001   # EXISTS — unchanged
+  conflict VIN2 assignment untouched: tenant 7700000001   # CONFLICT — unchanged
+  audit: fleet_import.apply
+
+errors.xlsx: (5, 'TRUCKFLEET0000021', 'менеджер', None, 'неизвестный менеджер (нет такого пользователя в группе «Менеджеры»)')
+
+batches page: batch 2 "парк" применена; batch 1 "GPS" отменена — one shared page, both kinds
+
+revert batch 2 (reason "передумал"): 302, batch.status unchanged == active
+  # fleet-kind revert is refused politely, not attempted — see SPEC
+
+manager1 GET /staff/import/fleet/: HTTP 404
 ```
 
 ## Project layout
@@ -263,6 +324,8 @@ fleet/               core domain
   exports.py         filtered table → .xlsx, report → .zip (§7)
   gpsimport.py       GPS row parse + classify (pure, host-tested) (§8)
   gpsservice.py      .xlsx read, preview, atomic apply, batch revert (§8)
+  onboarding.py      fleet-onboarding row parse + classify (pure, host-tested) (§7)
+  onboardingservice.py  .xlsx read, preview, atomic apply (§7)
   admin.py           raw back office, manager-scoped querysets
   management/commands/seed_demo.py
   tests.py
@@ -271,10 +334,10 @@ drivers/             driver cabinet
   report_views.py    four-screen report flow (§5)
   session.py ratelimit.py forms.py
 staff/               staff cabinet (§7, §8)
-  views.py           dashboard, control table, VIN card, review, exports, GPS import
+  views.py           dashboard, control table, VIN card, review, exports, both imports
   urls.py
 templates/drivers/   mobile-first templates (≥360px, Russian)
-templates/staff/     staff cabinet templates (dashboard, VIN card, import, Russian)
+templates/staff/     staff cabinet templates (dashboard, VIN card, both imports, Russian)
 docs/                SPEC.md (contracts), ROADMAP.md (stages, Russian)
 ```
 

@@ -4,19 +4,23 @@
 
 <div class="toprow">
   <h1>Партии импорта</h1>
-  <a class="btn secondary small" href="{% url 'staff_import' %}">← К импорту</a>
+  <span>
+    <a class="btn secondary small" href="{% url 'staff_import' %}">GPS-импорт</a>
+    <a class="btn secondary small" href="{% url 'staff_fleet_import' %}">Подключение парка</a>
+  </span>
 </div>
 
 <div class="card">
   <div class="scroll">
   <table class="grid">
     <thead>
-      <tr><th>№</th><th>Дата</th><th>Автор</th><th>Статус</th><th>Итог</th><th>Ошибки</th><th>Отмена</th></tr>
+      <tr><th>№</th><th>Тип</th><th>Дата</th><th>Автор</th><th>Статус</th><th>Итог</th><th>Ошибки</th><th>Отмена</th></tr>
     </thead>
     <tbody>
       {% for b in batches %}
       <tr>
         <td>{{ b.id }}</td>
+        <td>{% if b.kind == "gps" %}GPS{% else %}парк{% endif %}</td>
         <td>{{ b.created_at|date:"d.m.Y H:i" }}</td>
         <td>{{ b.author.get_username|default:"—" }}</td>
         <td>
@@ -25,14 +29,20 @@
         </td>
         <td>
           {% with c=b.summary.counts %}
-          {% if c %}принято {{ c.ready }}, проверка {{ c.review }}, дубли {{ c.duplicate }}, ошибки {{ c.error }}{% else %}—{% endif %}
+            {% if c and b.kind == "gps" %}
+              принято {{ c.ready }}, проверка {{ c.review }}, дубли {{ c.duplicate }}, ошибки {{ c.error }}
+            {% elif c %}
+              подключено {{ c.ready }}, уже было {{ c.exists }}, конфликты {{ c.conflict }}, ошибки {{ c.error }}
+            {% else %}—{% endif %}
           {% endwith %}
         </td>
         <td>
           {% if b.summary.errors %}<a href="{% url 'staff_import_errors' b.id %}">Excel ошибок</a>{% else %}—{% endif %}
         </td>
         <td>
-          {% if b.status == "active" %}
+          {% if b.kind != "gps" %}
+          <span class="muted">откат вручную, через карточку ТС</span>
+          {% elif b.status == "active" %}
           <form method="post" action="{% url 'staff_batch_revert' b.id %}">
             {% csrf_token %}
             <input class="reason" type="text" name="reason" placeholder="причина отмены" required>
@@ -44,7 +54,7 @@
         </td>
       </tr>
       {% empty %}
-      <tr><td colspan="7" class="muted">Партий импорта ещё не было.</td></tr>
+      <tr><td colspan="8" class="muted">Партий импорта ещё не было.</td></tr>
       {% endfor %}
     </tbody>
   </table>

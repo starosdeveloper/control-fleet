@@ -1,0 +1,121 @@
+{% extends "staff/base.html" %}
+{% block title %}Подключение парка{% endblock %}
+{% block content %}
+
+<div class="toprow">
+  <h1>Подключение парка из Excel</h1>
+  <span>
+    <a class="btn secondary small" href="{% url 'staff_fleet_import_template' %}">Скачать шаблон</a>
+    <a class="btn secondary small" href="{% url 'staff_import_batches' %}">Партии</a>
+  </span>
+</div>
+
+<div class="card">
+  <h2>1. Выбрать файл и проверить</h2>
+  <p class="muted">
+    .xlsx, первый лист, заголовки в первой строке, до 10&nbsp;000 строк и 10&nbsp;МБ.
+    Обязательны VIN, ИНН и менеджер (точный логин существующего пользователя из
+    группы «Менеджеры»). Госномер и модель — по желанию. Пробег+дата показания и
+    дата+пробег ТО — необязательные пары: заполняете либо обе ячейки, либо ни одной.
+    ТС, уже закреплённое за ЭТИМ арендатором, пропускается; закреплённое за ДРУГИМ —
+    не трогается, нужна ручная операция в карточке ТС.
+  </p>
+  <form method="post" action="{% url 'staff_fleet_import_preview' %}" enctype="multipart/form-data">
+    {% csrf_token %}
+    <div class="toolbar">
+      <div class="fld">
+        <label>Файл .xlsx</label>
+        <input type="file" name="file" accept=".xlsx" required>
+      </div>
+      <div class="fld"><label>Колонка VIN</label>
+        <input type="text" name="map_vin" value="{{ mapping.vin|default:defaults.vin }}"></div>
+      <div class="fld"><label>Колонка ИНН</label>
+        <input type="text" name="map_inn" value="{{ mapping.inn|default:defaults.inn }}"></div>
+      <div class="fld"><label>Колонка менеджера</label>
+        <input type="text" name="map_manager" value="{{ mapping.manager|default:defaults.manager }}"></div>
+      <div class="fld"><label>Колонка госномера</label>
+        <input type="text" name="map_plate" value="{{ mapping.plate|default:defaults.plate }}"></div>
+      <div class="fld"><label>Колонка модели</label>
+        <input type="text" name="map_model" value="{{ mapping.model|default:defaults.model }}"></div>
+      <div class="fld"><label>Колонка пробега</label>
+        <input type="text" name="map_mileage" value="{{ mapping.mileage|default:defaults.mileage }}"></div>
+      <div class="fld"><label>Колонка даты показания</label>
+        <input type="text" name="map_mileage_date" value="{{ mapping.mileage_date|default:defaults.mileage_date }}"></div>
+      <div class="fld"><label>Колонка даты ТО</label>
+        <input type="text" name="map_maint_date" value="{{ mapping.maint_date|default:defaults.maint_date }}"></div>
+      <div class="fld"><label>Колонка пробега ТО</label>
+        <input type="text" name="map_maint_mileage" value="{{ mapping.maint_mileage|default:defaults.maint_mileage }}"></div>
+      <button class="btn" type="submit">Проверить</button>
+    </div>
+  </form>
+</div>
+
+{% if result %}
+<div class="card">
+  <h2>2. Результат проверки</h2>
+  <div class="tiles">
+    <div class="tile"><div class="n">{{ result.total }}</div><div class="l">Найдено строк</div></div>
+    <div class="tile green"><div class="n">{{ result.ready }}</div><div class="l">Будет подключено</div></div>
+    <div class="tile gray"><div class="n">{{ result.exists }}</div><div class="l">Уже подключено</div></div>
+    <div class="tile yellow"><div class="n">{{ result.conflict }}</div><div class="l">Конфликт арендатора</div></div>
+    <div class="tile red"><div class="n">{{ result.error }}</div><div class="l">Ошибки</div></div>
+  </div>
+
+  <p class="muted" style="margin-top:12px">Предварительный просмотр данные не меняет.</p>
+
+  <form method="post" action="{% url 'staff_fleet_import_apply' %}">
+    {% csrf_token %}
+    <input type="hidden" name="rel_path" value="{{ rel_path }}">
+    <input type="hidden" name="map_vin" value="{{ mapping.vin }}">
+    <input type="hidden" name="map_inn" value="{{ mapping.inn }}">
+    <input type="hidden" name="map_manager" value="{{ mapping.manager }}">
+    <input type="hidden" name="map_plate" value="{{ mapping.plate }}">
+    <input type="hidden" name="map_model" value="{{ mapping.model }}">
+    <input type="hidden" name="map_mileage" value="{{ mapping.mileage }}">
+    <input type="hidden" name="map_mileage_date" value="{{ mapping.mileage_date }}">
+    <input type="hidden" name="map_maint_date" value="{{ mapping.maint_date }}">
+    <input type="hidden" name="map_maint_mileage" value="{{ mapping.maint_mileage }}">
+    <button class="btn" type="submit" {% if not result.ready %}disabled{% endif %}>
+      Подключить {{ result.ready }} ТС
+    </button>
+  </form>
+
+  <h3>Строки (первые 300{% if more %}, ещё {{ more }}{% endif %})</h3>
+  <div class="scroll">
+  <table class="grid">
+    <thead>
+      <tr>
+        <th>№</th><th>VIN</th><th>ИНН</th><th>Менеджер</th><th>Госномер</th><th>Модель</th>
+        <th class="num">Пробег</th><th>Дата</th><th>Дата ТО</th><th class="num">Пробег ТО</th>
+        <th>Категория</th><th>Причина</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in preview_rows %}
+      <tr>
+        <td>{{ r.excel_row }}</td>
+        <td>{{ r.vin }}</td>
+        <td>{{ r.inn }}</td>
+        <td>{{ r.manager }}</td>
+        <td>{{ r.plate|default:"—" }}</td>
+        <td>{{ r.model|default:"—" }}</td>
+        <td class="num">{% if r.mileage != None %}{{ r.mileage }}{% else %}—{% endif %}</td>
+        <td>{% if r.mileage_date %}{{ r.mileage_date|date:"d.m.Y" }}{% else %}—{% endif %}</td>
+        <td>{% if r.maint_date %}{{ r.maint_date|date:"d.m.Y" }}{% else %}—{% endif %}</td>
+        <td class="num">{% if r.maint_mileage != None %}{{ r.maint_mileage }}{% else %}—{% endif %}</td>
+        <td>
+          {% if r.category.value == "ready" %}<span class="pill green">подключим</span>
+          {% elif r.category.value == "exists" %}<span class="pill gray">уже есть</span>
+          {% elif r.category.value == "conflict" %}<span class="pill yellow">конфликт</span>
+          {% else %}<span class="pill red">ошибка</span>{% endif %}
+        </td>
+        <td>{{ r.reason }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

@@ -30,6 +30,12 @@ urlpatterns = [
     path("import/<int:batch_id>/errors.xlsx", views.import_errors, name="staff_import_errors"),
     path("import/<int:batch_id>/revert", views.batch_revert, name="staff_batch_revert"),
 
+    # Подключение парка (§7), только администратор.
+    path("import/fleet/", views.fleet_import_page, name="staff_fleet_import"),
+    path("import/fleet/template.xlsx", views.fleet_import_template, name="staff_fleet_import_template"),
+    path("import/fleet/preview", views.fleet_import_preview, name="staff_fleet_import_preview"),
+    path("import/fleet/apply", views.fleet_import_apply, name="staff_fleet_import_apply"),
+
     path("file/<int:attachment_id>/", views.staff_file, name="staff_file"),
     path(
         "file/<int:attachment_id>/thumb/",

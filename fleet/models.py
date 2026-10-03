@@ -417,12 +417,19 @@ class Attachment(models.Model):
 # --- Импорт и аудит -----------------------------------------------------------
 
 class ImportBatch(models.Model):
-    """Партия импорта показаний GPS из Excel (ТЗ §8, §9)."""
+    """Партия импорта из Excel: GPS-показания (§8) или подключение парка (§7)."""
+
+    class Kind(models.TextChoices):
+        GPS = "gps", "GPS-показания"
+        FLEET = "fleet", "Подключение парка"
 
     class Status(models.TextChoices):
         ACTIVE = "active", "применена"
         REVERTED = "reverted", "отменена"
 
+    kind = models.CharField(
+        "тип партии", max_length=10, choices=Kind.choices, default=Kind.GPS
+    )
     source_path = models.CharField("исходный файл", max_length=512)
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT,

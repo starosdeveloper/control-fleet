@@ -196,7 +196,11 @@
       <a href="{% url 'staff_dashboard' %}" {% if request.resolver_match.url_name == 'staff_dashboard' %}class="current"{% endif %}>Дашборд</a>
       {% if user.is_superuser %}
         <span class="sep">·</span>
-        <a href="{% url 'staff_import' %}">Импорт GPS</a>
+        <a href="{% url 'staff_import' %}" {% if request.resolver_match.url_name == 'staff_import' %}class="current"{% endif %}>Импорт GPS</a>
+        <span class="sep">·</span>
+        <a href="{% url 'staff_fleet_import' %}" {% if request.resolver_match.url_name == 'staff_fleet_import' %}class="current"{% endif %}>Подключение парка</a>
+        <span class="sep">·</span>
+        <a href="{% url 'staff_import_batches' %}" {% if request.resolver_match.url_name == 'staff_import_batches' %}class="current"{% endif %}>Партии</a>
       {% endif %}
       <span class="sep">·</span>
       <a href="/admin/">Админка</a>

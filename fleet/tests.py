@@ -997,3 +997,224 @@ class GpsImportViewTests(_ImportFleetMixin, TestCase):
         resp = self.client.get(reverse("staff_import_template"))
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.content[:2], b"PK")
+
+
+# =============================================================================
+# Массовое подключение парка (ТЗ §7). Нормализация и классификация — против
+# литералов; интеграция — создание/пропуск сущностей на реальной БД.
+# =============================================================================
+
+from . import onboarding as onb
+from . import onboardingservice as onbsvc
+
+
+class OnboardingPureTests(TestCase):
+    """Пары значений и классификация строки — чистая логика, без БД."""
+
+    def test_pair_both_blank_is_valid_absence(self):
+        r = onb.normalize_optional_pair(None, None, date(2026, 10, 2), "пара")
+        self.assertEqual((r.mileage, r.when, r.error), (None, None, ""))
+
+    def test_pair_half_filled_is_error(self):
+        r = onb.normalize_optional_pair(170000, None, date(2026, 10, 2), "пара")
+        self.assertIn("неполная пара", r.error)
+        r2 = onb.normalize_optional_pair(None, "2026-09-30", date(2026, 10, 2), "пара")
+        self.assertIn("неполная пара", r2.error)
+
+    def test_pair_both_filled_parses(self):
+        r = onb.normalize_optional_pair("170 000", "2026-09-30", date(2026, 10, 2), "пара")
+        self.assertEqual(r.mileage, 170000)
+        self.assertEqual(r.when, date(2026, 9, 30))
+        self.assertEqual(r.error, "")
+
+    def test_pair_future_date_is_error(self):
+        r = onb.normalize_optional_pair(170000, "01.01.2999", date(2026, 10, 2), "пара")
+        self.assertTrue(r.error)
+
+    def test_cross_check_maint_above_reading(self):
+        self.assertTrue(onb.cross_check_maint_vs_reading(170000, 172000))
+        self.assertEqual(onb.cross_check_maint_vs_reading(170000, 120000), "")
+        self.assertEqual(onb.cross_check_maint_vs_reading(None, 120000), "")  # нет пробега — не с чем сверять
+
+    def _base_kwargs(self, **over):
+        base = dict(
+            vin_ok=True, inn_ok=True, manager_known=True, reading_error="", maint_error="",
+            cross_error="", duplicate_in_file=False, existing_active_tenant_inn=None,
+            row_inn="7700000001",
+        )
+        base.update(over)
+        return base
+
+    def test_classify_ready(self):
+        cat, _ = onb.classify_onboarding_row(**self._base_kwargs())
+        self.assertEqual(cat, onb.RowCategory.READY)
+
+    def test_classify_error_on_bad_vin(self):
+        cat, reason = onb.classify_onboarding_row(**self._base_kwargs(vin_ok=False))
+        self.assertEqual(cat, onb.RowCategory.ERROR)
+        self.assertIn("VIN", reason)
+
+    def test_classify_error_on_unknown_manager(self):
+        cat, reason = onb.classify_onboarding_row(**self._base_kwargs(manager_known=False))
+        self.assertEqual(cat, onb.RowCategory.ERROR)
+        self.assertIn("менеджер", reason)
+
+    def test_classify_exists_same_tenant(self):
+        cat, _ = onb.classify_onboarding_row(
+            **self._base_kwargs(existing_active_tenant_inn="7700000001")
+        )
+        self.assertEqual(cat, onb.RowCategory.EXISTS)
+
+    def test_classify_conflict_other_tenant(self):
+        # Сломать: сравнивать по чему-то кроме ИНН — конфликт перестанет ловиться.
+        cat, reason = onb.classify_onboarding_row(
+            **self._base_kwargs(existing_active_tenant_inn="500100732259")
+        )
+        self.assertEqual(cat, onb.RowCategory.CONFLICT)
+        self.assertIn("другим арендатором", reason)
+
+
+_ONBOARD_HEADERS = ("VIN", "ИНН", "Менеджер", "Госномер", "Модель",
+                     "Пробег", "Дата показания", "Дата ТО", "Пробег ТО")
+
+
+class OnboardingIntegrationTests(_ImportFleetMixin, TestCase):
+    """ТЗ §7: подключение парка на реальной БД — создание, пропуск, конфликт."""
+
+    def setUp(self):
+        self.make_fleet()
+        self.mapping = dict(onbsvc.DEFAULT_MAP)
+
+    def _apply(self, rows):
+        rel = onbsvc.save_import_file(self._xlsx(rows, headers=_ONBOARD_HEADERS))
+        return onbsvc.apply_import(rel, self.mapping, self.admin, self.today)
+
+    def test_new_vehicle_creates_everything(self):
+        batch, result = self._apply([(
+            "TRUCKFLEET0000099", "500100732259", "mg2", "А099АА750", "MAN TGX",
+            140000, "2026-10-01", "2026-06-15", 120000,
+        )])
+        self.assertEqual(batch.kind, ImportBatch.Kind.FLEET)
+        self.assertEqual(result.ready, 1)
+
+        vehicle = Vehicle.objects.get(vin="TRUCKFLEET0000099")
+        self.assertEqual(vehicle.plate, "А099АА750")
+        self.assertEqual(vehicle.model, "MAN TGX")
+
+        tenant = Tenant.objects.get(inn="500100732259")
+        self.assertTrue(
+            Assignment.objects.filter(vehicle=vehicle, tenant=tenant, ended_at__isnull=True).exists()
+        )
+        self.assertTrue(
+            ManagerAssignment.objects.filter(
+                assignment__vehicle=vehicle, manager=self.m2, ended_at__isnull=True
+            ).exists()
+        )
+        self.assertTrue(
+            OdometerReading.objects.filter(
+                vehicle=vehicle, source=OdometerReading.Source.MANUAL, value_km=140000,
+                verification=OdometerReading.Verification.ACCEPTED, import_batch=batch,
+            ).exists()
+        )
+        self.assertTrue(
+            Maintenance.objects.filter(
+                vehicle=vehicle, mileage_km=120000, status=Maintenance.Status.CONFIRMED,
+                basis=Maintenance.Basis.INITIAL,
+            ).exists()
+        )
+
+    def test_existing_same_tenant_is_noop(self):
+        before = Assignment.objects.filter(vehicle=self.vehicle).count()
+        batch, result = self._apply([(
+            self.vehicle.vin, self.tenant.inn, "mg1", "", "", "", "", "", "",
+        )])
+        self.assertEqual(result.ready, 0)
+        self.assertEqual(result.exists, 1)
+        self.assertEqual(Assignment.objects.filter(vehicle=self.vehicle).count(), before)
+
+    def test_existing_other_tenant_is_conflict_and_untouched(self):
+        # Сломать: применить READY вместо CONFLICT — активное назначение сменит арендатора.
+        batch, result = self._apply([(
+            self.vehicle.vin, "500100732259", "mg1", "", "", "", "", "", "",
+        )])
+        self.assertEqual(result.ready, 0)
+        self.assertEqual(result.conflict, 1)
+        active = self.vehicle.active_assignment()
+        self.assertEqual(active.tenant_id, self.tenant.id)  # не тронуто
+
+    def test_unknown_manager_is_error(self):
+        batch, result = self._apply([(
+            "TRUCKFLEET0000098", "7700000002", "ghost_user", "", "", "", "", "", "",
+        )])
+        self.assertEqual(result.error, 1)
+        self.assertFalse(Vehicle.objects.filter(vin="TRUCKFLEET0000098").exists())
+
+    def test_duplicate_vin_in_file_is_error_on_second(self):
+        row = ("TRUCKFLEET0000097", "7700000002", "mg1", "", "", "", "", "", "")
+        batch, result = self._apply([row, row])
+        self.assertEqual(result.ready, 1)
+        self.assertEqual(result.error, 1)
+        self.assertEqual(Vehicle.objects.filter(vin="TRUCKFLEET0000097").count(), 1)
+
+    def test_incomplete_pair_is_error(self):
+        batch, result = self._apply([(
+            "TRUCKFLEET0000096", "7700000002", "mg1", "", "", 170000, "", "", "",
+        )])
+        self.assertEqual(result.error, 1)
+        self.assertFalse(Vehicle.objects.filter(vin="TRUCKFLEET0000096").exists())
+
+    def test_maint_above_reading_is_error(self):
+        batch, result = self._apply([(
+            "TRUCKFLEET0000095", "7700000002", "mg1", "", "",
+            100000, "2026-10-01", "2026-09-01", 150000,
+        )])
+        self.assertEqual(result.error, 1)
+
+
+class FleetOnboardingViewTests(_ImportFleetMixin, TestCase):
+    """ТЗ §1, §4: подключение парка доступно только администратору; откат блокирован."""
+
+    def setUp(self):
+        self.make_fleet()
+        self.client = Client()
+
+    def test_page_admin_only(self):
+        self.client.force_login(self.m1)
+        self.assertEqual(self.client.get(reverse("staff_fleet_import")).status_code, 404)
+        self.client.force_login(self.admin)
+        self.assertEqual(self.client.get(reverse("staff_fleet_import")).status_code, 200)
+
+    def test_template_download(self):
+        self.client.force_login(self.admin)
+        resp = self.client.get(reverse("staff_fleet_import_template"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.content[:2], b"PK")
+
+    def test_apply_via_view_logs_audit(self):
+        self.client.force_login(self.admin)
+        blob = self._xlsx(
+            [("TRUCKFLEET0000094", "7700000002", "mg1", "", "", "", "", "", "")],
+            headers=_ONBOARD_HEADERS,
+        )
+        rel = onbsvc.save_import_file(blob)
+        data = {"rel_path": rel}
+        for key, val in onbsvc.DEFAULT_MAP.items():
+            data[f"map_{key}"] = val
+        resp = self.client.post(reverse("staff_fleet_import_apply"), data)
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(Vehicle.objects.filter(vin="TRUCKFLEET0000094").exists())
+        from .models import AuditLog
+        self.assertTrue(AuditLog.objects.filter(action="fleet_import.apply").exists())
+
+    def test_revert_blocked_for_fleet_batch(self):
+        batch = ImportBatch.objects.create(
+            kind=ImportBatch.Kind.FLEET, source_path="x", author=self.admin,
+            status=ImportBatch.Status.ACTIVE, summary={},
+        )
+        self.client.force_login(self.admin)
+        resp = self.client.post(
+            reverse("staff_batch_revert", args=[batch.id]), {"reason": "передумал"}
+        )
+        self.assertEqual(resp.status_code, 302)  # не падает, а вежливо отказывает
+        batch.refresh_from_db()
+        self.assertEqual(batch.status, ImportBatch.Status.ACTIVE)  # статус не менялся

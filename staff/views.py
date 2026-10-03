@@ -22,7 +22,7 @@ from django.views.decorators.http import require_http_methods
 from datetime import datetime
 
 from fleet import dashboard as dash
-from fleet import exports, gpsservice, review
+from fleet import exports, gpsservice, onboardingservice, review
 from fleet.models import ImportBatch
 from fleet.storage import save_import_file
 from fleet.access import (
@@ -487,9 +487,97 @@ def batch_revert(request, batch_id: int):
     if not reason:
         messages.error(request, "Укажите причину отмены партии.")
         return redirect("staff_import_batches")
-    gpsservice.revert_batch(batch, request.user, reason)
+    try:
+        gpsservice.revert_batch(batch, request.user, reason)
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect("staff_import_batches")
     review.log_action(request.user, "import.revert", batch, reason=reason)
     messages.success(request, f"Партия №{batch.id} отменена. Пробег и ТО пересчитаны.")
+    return redirect("staff_import_batches")
+
+
+# --- Подключение парка из Excel (ТЗ §7) --------------------------------------
+
+def _fleet_mapping_from(request) -> dict:
+    return {
+        key: (request.POST.get(f"map_{key}", default) or "").strip()
+        for key, default in onboardingservice.DEFAULT_MAP.items()
+    }
+
+
+@admin_required
+@require_http_methods(["GET"])
+def fleet_import_page(request):
+    return render(request, "staff/import_fleet.html", {"defaults": onboardingservice.DEFAULT_MAP})
+
+
+@admin_required
+@require_http_methods(["GET"])
+def fleet_import_template(request):
+    blob = onboardingservice.build_template()
+    resp = HttpResponse(
+        blob,
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    resp["Content-Disposition"] = 'attachment; filename="fleet_template.xlsx"'
+    return resp
+
+
+@admin_required
+@require_http_methods(["POST"])
+def fleet_import_preview(request):
+    upload = request.FILES.get("file")
+    mapping = _fleet_mapping_from(request)
+    ctx = {"defaults": onboardingservice.DEFAULT_MAP, "mapping": mapping}
+
+    if upload is None:
+        messages.error(request, "Выберите файл .xlsx.")
+        return render(request, "staff/import_fleet.html", ctx)
+    if not upload.name.lower().endswith(".xlsx"):
+        messages.error(request, "Нужен .xlsx. Старый .xls пересохраните в .xlsx и загрузите снова.")
+        return render(request, "staff/import_fleet.html", ctx)
+    if upload.size > onboardingservice.MAX_BYTES:
+        messages.error(request, "Файл больше 10 МБ.")
+        return render(request, "staff/import_fleet.html", ctx)
+
+    rel_path = save_import_file(upload.read())
+    result = onboardingservice.build_preview(rel_path, mapping, timezone.localdate())
+    if result.fatal:
+        messages.error(request, result.fatal)
+        return render(request, "staff/import_fleet.html", ctx)
+
+    ctx.update({
+        "result": result,
+        "rel_path": rel_path,
+        "preview_rows": result.rows[:300],
+        "more": max(0, len(result.rows) - 300),
+    })
+    return render(request, "staff/import_fleet.html", ctx)
+
+
+@admin_required
+@require_http_methods(["POST"])
+def fleet_import_apply(request):
+    rel_path = request.POST.get("rel_path", "")
+    mapping = _fleet_mapping_from(request)
+    if not rel_path:
+        messages.error(request, "Потерян файл предпросмотра. Загрузите заново.")
+        return redirect("staff_fleet_import")
+    try:
+        batch, result = onboardingservice.apply_import(
+            rel_path, mapping, request.user, timezone.localdate()
+        )
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect("staff_fleet_import")
+
+    review.log_action(request.user, "fleet_import.apply", batch, new_value=str(result.counts()))
+    messages.success(
+        request,
+        f"Партия №{batch.id}: подключено {result.ready}, уже было {result.exists}, "
+        f"конфликтов {result.conflict}, ошибок {result.error}.",
+    )
     return redirect("staff_import_batches")
 
 

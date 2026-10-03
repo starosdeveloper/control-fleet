@@ -236,6 +236,7 @@ def apply_import(
         raise ValueError(result.fatal)
 
     batch = ImportBatch.objects.create(
+        kind=ImportBatch.Kind.GPS,
         source_path=rel_path,
         author=author,
         status=ImportBatch.Status.ACTIVE,
@@ -288,7 +289,19 @@ def revert_batch(batch: ImportBatch, staff, reason: str) -> ImportBatch:
     Отменить партию (ТЗ §8): записи исключаются из расчёта, но остаются в истории.
     Актуальный пробег и ТО пересчитываются автоматически, т.к. выборка принятых
     показаний исключает отменённые партии (`Vehicle.accepted_reading_rows`).
+
+    Откат определён только для GPS-партий: это переключение видимости показаний,
+    а не удаление сущностей. У партии подключения парка (`Kind.FLEET`) откат создал
+    бы ТС/назначения/менеджеров — такую отмену ТЗ не описывает, и тихо развязывать
+    назначения через общий механизм небезопасно. Отменить её результат можно только
+    вручную через карточку ТС (закрыть назначение, архивировать ТС) — это
+    осознанное ограничение, не пробел.
     """
+    if batch.kind != ImportBatch.Kind.GPS:
+        raise ValueError(
+            "Откат доступен только для партий GPS-показаний. Подключение парка "
+            "отменяется вручную через карточку ТС."
+        )
     locked = ImportBatch.objects.select_for_update().get(pk=batch.pk)
     if locked.status == ImportBatch.Status.REVERTED:
         return locked
@@ -318,14 +331,18 @@ def build_template() -> bytes:
 
 
 def errors_xlsx(errors: list[dict]) -> bytes:
-    """Excel ошибок с номером исходной строки и причиной (ТЗ §8)."""
+    """
+    Excel ошибок с номером исходной строки и причиной (ТЗ §8). Общий для обоих
+    импортов (GPS и подключение парка — §7); `field` у GPS-ошибок пустой, у
+    подключения парка называет проблемную колонку.
+    """
     wb = Workbook()
     ws = wb.active
     ws.title = "Ошибки"
-    ws.append(["№ строки", "VIN", "Значение", "Причина"])
+    ws.append(["№ строки", "VIN", "Поле", "Значение", "Причина"])
     for e in errors:
-        ws.append([e.get("row"), e.get("vin"), e.get("value"), e.get("reason")])
-    for col, width in zip("ABCD", (10, 22, 14, 40)):
+        ws.append([e.get("row"), e.get("vin"), e.get("field", ""), e.get("value"), e.get("reason")])
+    for col, width in zip("ABCDE", (10, 22, 16, 14, 44)):
         ws.column_dimensions[col].width = width
     buf = io.BytesIO()
     wb.save(buf)
