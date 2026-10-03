@@ -4,139 +4,209 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Кабинет сотрудников{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Inter+Tight:wght@600;700;800&display=swap" rel="stylesheet">
   <style>
     /* Чёрно-белый интерфейс (требование заказчика). Статус несём не цветом, а
-       заливкой/рамкой/насыщенностью и значком: сплошной чёрный — срочно, жирная
-       рамка — скоро, светло-серый — норма, пунктир — нет данных. */
+       заливкой/рамкой/насыщенностью и значком: ● сплошной чёрный — срочно,
+       ◑ жирная рамка — скоро, ○ светло-серый — норма, – пунктир — нет данных.
+       Один и тот же язык значков используется и в плитках дашборда, и в пилюлях
+       таблицы/карточки — это единственная подсказка статуса без цвета. */
     :root {
-      --bg: #ffffff; --card: #ffffff; --ink: #111111; --muted: #666666;
-      --line: #cfcfcf; --line-strong: #111111;
-      --accent: #111111; --accent-ink: #ffffff;
-      --zebra: #f6f6f6; --hover: #efefef;
+      --bg: #f3f3f1; --card: #ffffff; --ink: #121212; --muted: #6b6b6b; --faint: #9b9b9b;
+      --line: #e1e0dd; --line-strong: #121212;
+      --ink-soft: #2a2a2a;
+      --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --font-display: "Inter Tight", "Inter", system-ui, sans-serif;
+      --radius: 14px; --radius-sm: 9px;
+      --shadow-sm: 0 1px 2px rgba(18,18,18,.06), 0 1px 1px rgba(18,18,18,.04);
+      --shadow-md: 0 4px 16px rgba(18,18,18,.07), 0 1px 3px rgba(18,18,18,.05);
+      --shadow-focus: 0 0 0 3px rgba(18,18,18,.14);
     }
     * { box-sizing: border-box; }
     body {
       margin: 0; background: var(--bg); color: var(--ink);
-      font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font: 15px/1.5 var(--font);
+      -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
     }
-    a { color: var(--ink); text-underline-offset: 2px; }
+    a { color: var(--ink); text-underline-offset: 3px; }
     a:hover { text-decoration: underline; }
+    strong, b { font-weight: 600; }
 
+    /* --- Шапка: бренд-марка + навигация ----------------------------------- */
     header.app {
-      background: var(--ink); color: var(--accent-ink);
-      padding: 12px 20px; display: flex; align-items: center; justify-content: space-between;
-      flex-wrap: wrap; gap: 8px; border-bottom: 2px solid #000;
+      background: #0c0c0c; color: #fff;
+      padding: 14px 24px; display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 10px; box-shadow: 0 2px 10px rgba(0,0,0,.18); position: sticky; top: 0; z-index: 20;
     }
-    header.app .brand { font-weight: 700; letter-spacing: .3px; }
-    header.app a { color: var(--accent-ink); }
+    .brandmark { display: flex; align-items: center; gap: 10px; }
+    .brandmark .logo {
+      width: 30px; height: 30px; border-radius: 8px; background: #fff; color: #0c0c0c;
+      display: flex; align-items: center; justify-content: center; font-family: var(--font-display);
+      font-weight: 800; font-size: 14px; letter-spacing: -.02em; flex: none;
+    }
+    .brandmark .text { display: flex; flex-direction: column; line-height: 1.15; }
+    .brandmark .text b { font-family: var(--font-display); font-weight: 700; font-size: 14.5px; letter-spacing: -.01em; }
+    .brandmark .text span { font-size: 11.5px; color: rgba(255,255,255,.55); }
+    header.app nav { display: flex; align-items: center; gap: 18px; font-size: 13.5px; flex-wrap: wrap; }
+    header.app nav a { color: rgba(255,255,255,.82); text-decoration: none; }
+    header.app nav a:hover { color: #fff; }
+    header.app nav a.current { color: #fff; font-weight: 600; }
+    header.app nav .sep { color: rgba(255,255,255,.25); }
+    header.app .who { color: rgba(255,255,255,.55); }
     header.app form { margin: 0; }
     header.app button {
-      background: transparent; color: var(--accent-ink); border: 1px solid rgba(255,255,255,.7);
-      border-radius: 8px; padding: 7px 12px; font-size: 14px; cursor: pointer;
+      background: transparent; color: rgba(255,255,255,.85); border: 1px solid rgba(255,255,255,.28);
+      border-radius: 7px; padding: 6px 12px; font: 13px var(--font); cursor: pointer; transition: all .15s ease;
     }
-    header.app button:hover { background: rgba(255,255,255,.12); }
+    header.app button:hover { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.5); color: #fff; }
 
-    .wrap { max-width: 1240px; margin: 0 auto; padding: 18px 20px 48px; }
+    .wrap { max-width: 1280px; margin: 0 auto; padding: 24px 24px 56px; }
+
+    /* --- Карточки ----------------------------------------------------------- */
     .card {
-      background: var(--card); border: 1px solid var(--line); border-radius: 10px;
-      padding: 16px 18px; margin: 0 0 18px;
+      background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+      padding: 20px 22px; margin: 0 0 20px; box-shadow: var(--shadow-sm);
     }
-    h1 { font-size: 22px; margin: 0 0 14px; }
-    h2 { font-size: 17px; margin: 0 0 12px; }
-    h3 { font-size: 15px; margin: 18px 0 8px; }
+    h1 { font-family: var(--font-display); font-size: 24px; font-weight: 700; letter-spacing: -.01em; margin: 0 0 4px; }
+    h2 { font-family: var(--font-display); font-size: 16px; font-weight: 700; margin: 0 0 14px; letter-spacing: -.005em; }
+    h3 {
+      font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em;
+      color: var(--muted); margin: 22px 0 10px;
+    }
     .muted { color: var(--muted); }
+    .eyebrow { font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
 
-    .msg { padding: 11px 14px; border-radius: 8px; margin: 0 0 14px; font-size: 14px;
-      background: #f4f4f4; color: var(--ink); border-left: 4px solid var(--muted); }
-    .msg.error { border-left-color: #000; background: #ededed; font-weight: 600; }
-    .msg.success { border-left-color: #000; background: #f7f7f7; }
+    .msg {
+      padding: 12px 16px; border-radius: var(--radius-sm); margin: 0 0 16px; font-size: 13.5px;
+      background: #fff; color: var(--ink); border: 1px solid var(--line); border-left: 3px solid var(--ink);
+      box-shadow: var(--shadow-sm);
+    }
+    .msg.error { font-weight: 600; }
 
-    /* Плитки показателей: число чёрное; «срочные» выделены сплошной чёрной
-       полосой слева, «нет данных» — приглушены. */
-    .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-    .tile { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
-      padding: 14px 16px; border-left: 4px solid var(--line); }
-    .tile .n { font-size: 28px; font-weight: 700; line-height: 1.1; }
-    .tile .l { color: var(--muted); font-size: 13px; margin-top: 4px; }
-    .tile.red { border-left-color: #000; }
-    .tile.red .n { color: #000; }
-    .tile.yellow { border-left-color: #666; }
-    .tile.green { border-left-color: #bbb; }
-    .tile.gray .n { color: var(--muted); }
+    /* --- Плитки показателей: число + подпись; значок как у пилюль статуса -- */
+    .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(156px, 1fr)); gap: 12px; }
+    .tile {
+      background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-sm);
+      padding: 16px 18px; box-shadow: var(--shadow-sm); position: relative; overflow: hidden;
+    }
+    .tile::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--line); }
+    .tile .n { font-family: var(--font-display); font-size: 30px; font-weight: 800; line-height: 1; letter-spacing: -.02em;
+      font-variant-numeric: tabular-nums; }
+    .tile .l { color: var(--muted); font-size: 12.5px; margin-top: 6px; font-weight: 500; }
+    .tile.red::before { background: #000; }
+    .tile.yellow::before { background: repeating-linear-gradient(135deg,#000 0 3px,transparent 3px 7px); }
+    .tile.green::before { background: var(--line); }
+    .tile.gray .n { color: var(--faint); }
+    .tile.gray::before { background: var(--line); border-top: none; }
 
-    .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin: 0 0 14px; }
-    .toolbar .fld { display: flex; flex-direction: column; gap: 4px; }
-    .toolbar label { font-size: 12px; color: var(--muted); }
+    /* --- Панель фильтров ----------------------------------------------------- */
+    .toolbar {
+      display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; margin: 0 0 18px;
+      background: #fafafa; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 14px 16px;
+    }
+    .toolbar .fld { display: flex; flex-direction: column; gap: 5px; }
+    .toolbar label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+
     select, input[type=text], input[type=number], input[type=file], input[type=password] {
-      padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 14px;
-      background: #fff; color: var(--ink); }
-    select:focus, input:focus { outline: 2px solid #000; outline-offset: -1px; border-color: #000; }
+      padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; font: 14px var(--font);
+      background: #fff; color: var(--ink); transition: border-color .15s ease, box-shadow .15s ease;
+    }
+    select:focus, input:focus { outline: none; border-color: var(--ink); box-shadow: var(--shadow-focus); }
+    input[type=file] { padding: 7px 9px; }
 
-    .btn { display: inline-block; padding: 9px 14px; border-radius: 8px; border: 1px solid #000;
-      background: #000; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer;
-      text-decoration: none; text-align: center; }
-    .btn:hover { background: #333; text-decoration: none; }
+    .btn {
+      display: inline-block; padding: 9px 16px; border-radius: 8px; border: 1px solid #000;
+      background: #000; color: #fff; font: 600 13.5px var(--font); cursor: pointer;
+      text-decoration: none; text-align: center; transition: transform .1s ease, box-shadow .15s ease, background .15s ease;
+      box-shadow: var(--shadow-sm);
+    }
+    .btn:hover { background: #262626; text-decoration: none; box-shadow: var(--shadow-md); }
+    .btn:active { transform: translateY(1px); box-shadow: none; }
     .btn.secondary { background: #fff; color: #000; border-color: var(--line); }
-    .btn.secondary:hover { background: var(--hover); }
-    .btn.small { padding: 6px 10px; font-size: 13px; }
-    .btn.danger { background: #fff; color: #000; border: 2px solid #000; }
+    .btn.secondary:hover { background: #f4f4f4; border-color: #c7c7c4; }
+    .btn.small { padding: 6px 11px; font-size: 12.5px; }
+    .btn.danger { background: #fff; color: #000; border: 1.5px solid #000; box-shadow: none; }
     .btn.danger:hover { background: #000; color: #fff; }
-    .btn:disabled { opacity: .4; cursor: not-allowed; }
+    .btn:disabled { opacity: .35; cursor: not-allowed; box-shadow: none; }
 
-    .scroll { overflow-x: auto; }
+    /* --- Таблицы -------------------------------------------------------------- */
+    .scroll { overflow-x: auto; border-radius: var(--radius-sm); border: 1px solid var(--line); }
     table.grid { border-collapse: collapse; width: 100%; font-size: 13px; }
-    table.grid th, table.grid td { border-bottom: 1px solid var(--line); padding: 8px 9px;
-      text-align: left; white-space: nowrap; }
-    table.grid th { background: #ececec; position: sticky; top: 0; font-weight: 700;
-      border-bottom: 2px solid #000; }
-    table.grid tbody tr:nth-child(even) td { background: var(--zebra); }
-    table.grid tbody tr:hover td { background: var(--hover); }
+    table.grid th, table.grid td { padding: 10px 12px; text-align: left; white-space: nowrap;
+      border-bottom: 1px solid var(--line); }
+    table.grid th {
+      background: #f7f7f5; position: sticky; top: 0; font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .05em; color: var(--muted); border-bottom: 1px solid var(--line-strong);
+    }
+    table.grid tbody tr:nth-child(even) td { background: #fbfbfa; }
+    table.grid tbody tr:hover td { background: #f0f0ee; }
+    table.grid tbody tr:last-child td { border-bottom: none; }
     .num { text-align: right; font-variant-numeric: tabular-nums; }
 
-    /* Статус-метки без цвета: значок + заливка/рамка задают срочность. */
-    .pill { display: inline-block; padding: 2px 9px 2px 7px; border-radius: 999px;
-      font-size: 12px; font-weight: 600; border: 1px solid var(--line); background: #fff; color: #111; }
-    .pill::before { font-weight: 700; margin-right: 5px; }
-    .pill.green  { background: #f2f2f2; color: #444; border-color: #ddd; }
-    .pill.green::before  { content: "\25CB"; }             /* ○ норма */
-    .pill.yellow { background: #fff; color: #000; border: 1.5px solid #000; font-weight: 700; }
-    .pill.yellow::before { content: "\25D1"; }             /* ◑ скоро */
+    /* --- Статус-пилюли: значок + заливка/рамка задают срочность без цвета --- */
+    .pill {
+      display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px 3px 8px; border-radius: 999px;
+      font-size: 11.5px; font-weight: 700; border: 1px solid var(--line); background: #fff; color: var(--ink-soft);
+      white-space: nowrap;
+    }
+    .pill::before { font-size: 10px; line-height: 1; }
+    .pill.green  { background: #f6f6f4; color: var(--muted); border-color: #e5e4e0; font-weight: 600; }
+    .pill.green::before  { content: "\25CB"; }
+    .pill.yellow { background: #fff; color: #000; border: 1.5px solid #000; }
+    .pill.yellow::before { content: "\25D1"; }
     .pill.red    { background: #000; color: #fff; border-color: #000; }
-    .pill.red::before    { content: "\25CF"; }             /* ● срочно */
-    .pill.gray   { background: #fff; color: #777; border: 1px dashed #aaa; }
-    .pill.gray::before   { content: "\2013"; }             /* – нет данных */
+    .pill.red::before    { content: "\25CF"; }
+    .pill.gray   { background: #fff; color: var(--faint); border: 1px dashed #c7c7c4; font-weight: 600; }
+    .pill.gray::before   { content: "\2013"; }
 
-    .flag { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 6px;
-      background: #000; color: #fff; margin-left: 4px; font-weight: 700; }
+    .flag { display: inline-flex; align-items: center; font-size: 10.5px; padding: 2px 7px; border-radius: 6px;
+      background: #000; color: #fff; margin-left: 5px; font-weight: 700; letter-spacing: .01em; }
 
-    dl.kv { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; }
-    dl.kv dt { color: var(--muted); }
-    dl.kv dd { margin: 0; font-weight: 600; }
+    dl.kv { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 9px 20px; }
+    dl.kv dt { color: var(--muted); font-size: 12.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+      padding-top: 1px; }
+    dl.kv dd { margin: 0; font-weight: 600; font-size: 14px; }
 
-    .thumbs { display: flex; flex-wrap: wrap; gap: 8px; }
-    .thumbs a img { height: 92px; border-radius: 8px; border: 1px solid var(--line); display: block;
-      filter: grayscale(100%); }
-    .report { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin: 0 0 12px; }
-    .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+    .thumbs { display: flex; flex-wrap: wrap; gap: 10px; }
+    .thumbs a {
+      display: block; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); box-shadow: var(--shadow-sm);
+      transition: box-shadow .15s ease, transform .1s ease;
+    }
+    .thumbs a:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
+    .thumbs a img { height: 92px; display: block; filter: grayscale(100%); }
+    .report { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 14px 16px; margin: 0 0 14px;
+      background: #fff; }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 10px;
+      padding-top: 10px; border-top: 1px dashed var(--line); }
     .actions form { display: flex; gap: 6px; align-items: center; margin: 0; }
-    .reason { min-width: 180px; }
+    .reason { min-width: 190px; }
     .toprow { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
   </style>
 </head>
 <body>
   <header class="app">
-    <span class="brand">Контроль парка · кабинет сотрудника</span>
-    <span>
-      {% if user.is_authenticated %}
-        <a href="{% url 'staff_dashboard' %}">Дашборд</a>
-        {% if user.is_superuser %}&nbsp;·&nbsp; <a href="{% url 'staff_import' %}">Импорт GPS</a>{% endif %}
-        &nbsp;·&nbsp; {{ user.get_username }}
-        &nbsp;·&nbsp; <a href="/admin/">Админка</a>
-        <form method="post" action="/admin/logout/" style="display:inline">
-          {% csrf_token %}<button type="submit">Выход</button>
-        </form>
+    <a href="{% url 'staff_dashboard' %}" class="brandmark" style="text-decoration:none">
+      <span class="logo">CF</span>
+      <span class="text"><b>Control Fleet</b><span>кабинет сотрудника</span></span>
+    </a>
+    {% if user.is_authenticated %}
+    <nav>
+      <a href="{% url 'staff_dashboard' %}" {% if request.resolver_match.url_name == 'staff_dashboard' %}class="current"{% endif %}>Дашборд</a>
+      {% if user.is_superuser %}
+        <span class="sep">·</span>
+        <a href="{% url 'staff_import' %}">Импорт GPS</a>
       {% endif %}
-    </span>
+      <span class="sep">·</span>
+      <a href="/admin/">Админка</a>
+      <span class="sep">·</span>
+      <span class="who">{{ user.get_username }}</span>
+      <form method="post" action="/admin/logout/">
+        {% csrf_token %}<button type="submit">Выход</button>
+      </form>
+    </nav>
+    {% endif %}
   </header>
   <main class="wrap">
     {% if messages %}

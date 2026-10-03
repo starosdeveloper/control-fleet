@@ -69,6 +69,14 @@ class Vehicle(models.Model):
     def status(self) -> str:
         return self.Status.ARCHIVED if self.is_archived else self.Status.ACTIVE
 
+    def get_status_display(self) -> str:
+        """
+        Человекочитаемый статус. `status` — Python-property (не поле БД), поэтому
+        Django не создаёт этот метод автоматически, как для обычных choices-полей;
+        без него шаблон `{{ vehicle.get_status_display }}` молча рендерит пусто.
+        """
+        return self.Status(self.status).label
+
     def active_assignment(self) -> "Assignment | None":
         return self.assignments.filter(ended_at__isnull=True).first()
 

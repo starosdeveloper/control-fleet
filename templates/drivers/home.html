@@ -6,7 +6,7 @@
   <span class="vin">{{ vehicle.vin }}</span>
   <form method="post" action="{% url 'driver_logout' %}" style="margin:0;width:auto">
     {% csrf_token %}
-    <button type="submit" class="secondary" style="padding:8px 12px;font-size:14px;width:auto;background:transparent;border:1px solid #fff;color:#fff">Выход</button>
+    <button type="submit" class="btn-header">Выход</button>
   </form>
 </header>
 {% endblock %}

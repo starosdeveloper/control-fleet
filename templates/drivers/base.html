@@ -5,112 +5,134 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{% block title %}Кабинет водителя{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Inter+Tight:wght@700;800&display=swap" rel="stylesheet">
   <style>
     /* Чёрно-белый интерфейс (требование заказчика). Статус ТО несём значком и
        заливкой, а не цветом: ● сплошной чёрный — срочно, ◑ жирная рамка — скоро,
-       ○ светло-серый — норма, – пунктир — нет данных. */
+       ○ светло-серый — норма, – пунктир — нет данных. Тот же язык, что в
+       кабинете сотрудника — водитель и сотрудник видят один смысл одинаково. */
     :root {
-      --bg: #ffffff; --card: #ffffff; --ink: #111111; --muted: #666666;
-      --line: #cfcfcf; --accent: #111111; --accent-ink: #ffffff;
+      --bg: #f3f3f1; --card: #ffffff; --ink: #121212; --muted: #6b6b6b;
+      --line: #e3e2df;
+      --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --font-display: "Inter Tight", "Inter", system-ui, sans-serif;
+      --shadow-sm: 0 1px 2px rgba(18,18,18,.06), 0 1px 1px rgba(18,18,18,.04);
+      --shadow-md: 0 8px 24px rgba(18,18,18,.1), 0 2px 6px rgba(18,18,18,.06);
+      --shadow-focus: 0 0 0 3px rgba(18,18,18,.14);
     }
     * { box-sizing: border-box; }
     body {
       margin: 0; background: var(--bg); color: var(--ink);
-      font: 17px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      -webkit-text-size-adjust: 100%;
+      font: 16.5px/1.5 var(--font);
+      -webkit-text-size-adjust: 100%; -webkit-font-smoothing: antialiased;
     }
-    .wrap { max-width: 520px; min-width: 320px; margin: 0 auto; padding: 16px; }
-    header.app {
-      background: var(--ink); color: var(--accent-ink);
-      padding: 14px 16px; display: flex; align-items: center; justify-content: space-between;
-      border-bottom: 2px solid #000;
-    }
-    header.app .vin { font-weight: 600; letter-spacing: .5px; }
-    .card {
-      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
-      padding: 16px; margin: 0 0 16px;
-    }
-    h1 { font-size: 22px; margin: 0 0 16px; }
-    h2 { font-size: 18px; margin: 0 0 10px; }
-    label { display: block; font-weight: 600; margin: 0 0 6px; }
-    input[type=text], input[type=password] {
-      width: 100%; padding: 14px; font-size: 18px; border: 1px solid var(--line);
-      border-radius: 10px; background: #fff; color: var(--ink);
-    }
-    input:focus, textarea:focus { outline: 2px solid #000; outline-offset: -1px; border-color: #000; }
-    .field { margin: 0 0 16px; }
-    .hint { color: var(--muted); font-size: 14px; margin: 6px 0 0; }
-    .errors { color: #000; font-weight: 600; font-size: 14px; margin: 6px 0 0; }
-    button, .btn {
-      display: block; width: 100%; padding: 16px; font-size: 18px; font-weight: 600;
-      border: 1px solid #000; border-radius: 10px; background: #000; color: #fff;
-      cursor: pointer; text-align: center; text-decoration: none;
-    }
-    button:hover, .btn:hover { background: #333; }
-    button.secondary, .btn.secondary {
-      background: #fff; color: #000; border: 1px solid var(--line);
-    }
-    button.secondary:hover, .btn.secondary:hover { background: #efefef; }
-    .msg { padding: 12px 14px; border-radius: 10px; margin: 0 0 16px; font-size: 15px;
-      background: #f4f4f4; color: var(--ink); border-left: 4px solid var(--muted); }
-    .msg.error { border-left-color: #000; background: #ededed; font-weight: 600; }
-    .msg.success { border-left-color: #000; background: #f7f7f7; }
+    .wrap { max-width: 520px; min-width: 320px; margin: 0 auto; padding: 18px 16px 32px; }
 
-    /* Крупный статус ТО: значок + заливка задают срочность без цвета. */
-    .badge {
-      display: flex; align-items: center; justify-content: center; gap: 8px;
-      padding: 12px 14px; border-radius: 10px; font-weight: 700; font-size: 16px;
-      width: 100%; text-align: center; border: 1px solid var(--line); background: #fff; color: #111;
+    header.app {
+      background: #0c0c0c; color: #fff;
+      padding: 16px 18px; display: flex; align-items: center; justify-content: space-between;
+      box-shadow: 0 2px 10px rgba(0,0,0,.18); position: sticky; top: 0; z-index: 20;
     }
-    .badge::before { font-size: 18px; }
-    .badge.green  { background: #f2f2f2; color: #333; border-color: #ddd; }
+    header.app .vin { font-family: var(--font-display); font-weight: 700; font-size: 16px; letter-spacing: .01em; }
+    .btn-header {
+      padding: 8px 13px; font: 600 13px var(--font); border-radius: 8px; width: auto;
+      background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.32);
+      text-decoration: none; display: inline-block; cursor: pointer; transition: all .15s ease;
+    }
+    .btn-header:hover { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.55); }
+
+    .card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+      padding: 18px; margin: 0 0 16px; box-shadow: var(--shadow-sm);
+    }
+    h1 { font-family: var(--font-display); font-size: 22px; font-weight: 700; letter-spacing: -.01em; margin: 0 0 16px; }
+    h2 { font-family: var(--font-display); font-size: 16.5px; font-weight: 700; margin: 0 0 12px; }
+    label { display: block; font-weight: 600; margin: 0 0 7px; font-size: 14.5px; }
+    input[type=text], input[type=password] {
+      width: 100%; padding: 14px; font: 17px var(--font); border: 1px solid var(--line);
+      border-radius: 11px; background: #fff; color: var(--ink); transition: border-color .15s ease, box-shadow .15s ease;
+    }
+    input:focus, textarea:focus { outline: none; border-color: #000; box-shadow: var(--shadow-focus); }
+    .field { margin: 0 0 16px; }
+    .hint { color: var(--muted); font-size: 13.5px; margin: 7px 0 0; line-height: 1.5; }
+    .errors { color: #000; font-weight: 600; font-size: 13.5px; margin: 7px 0 0; }
+
+    button, .btn {
+      display: block; width: 100%; padding: 16px; font: 700 16.5px var(--font); letter-spacing: -.005em;
+      border: 1px solid #000; border-radius: 12px; background: #000; color: #fff;
+      cursor: pointer; text-align: center; text-decoration: none;
+      box-shadow: var(--shadow-sm); transition: transform .1s ease, box-shadow .15s ease, background .15s ease;
+    }
+    button:hover, .btn:hover { background: #262626; box-shadow: var(--shadow-md); }
+    button:active, .btn:active { transform: translateY(1px); box-shadow: none; }
+    button.secondary, .btn.secondary { background: #fff; color: #000; border: 1px solid var(--line); box-shadow: none; }
+    button.secondary:hover, .btn.secondary:hover { background: #f4f4f4; }
+
+    .msg { padding: 13px 15px; border-radius: 12px; margin: 0 0 16px; font-size: 14.5px;
+      background: #fff; border: 1px solid var(--line); border-left: 3px solid #000; box-shadow: var(--shadow-sm); }
+    .msg.error { font-weight: 600; }
+
+    .badge {
+      display: flex; align-items: center; justify-content: center; gap: 9px;
+      padding: 14px 16px; border-radius: 12px; font-weight: 700; font-size: 16px;
+      width: 100%; text-align: center; border: 1px solid var(--line); background: #fff; color: #121212;
+    }
+    .badge::before { font-size: 17px; line-height: 1; }
+    .badge.green  { background: #f6f6f4; color: var(--muted); border-color: #e5e4e0; }
     .badge.green::before  { content: "\25CB"; }
     .badge.yellow { background: #fff; color: #000; border: 2px solid #000; }
     .badge.yellow::before { content: "\25D1"; }
     .badge.red    { background: #000; color: #fff; border-color: #000; }
     .badge.red::before    { content: "\25CF"; }
-    .badge.gray   { background: #fff; color: #777; border: 1px dashed #aaa; }
+    .badge.gray   { background: #fff; color: #8f8f8f; border: 1.5px dashed #c7c7c4; }
     .badge.gray::before   { content: "\2013"; }
 
     dl { margin: 0; }
-    dl div { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+    dl div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 9px 0;
+      border-bottom: 1px solid var(--line); }
     dl div:last-child { border-bottom: none; }
-    dt { color: var(--muted); }
-    dd { margin: 0; text-align: right; font-weight: 600; }
+    dt { color: var(--muted); font-size: 13.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+    dd { margin: 0; text-align: right; font-weight: 700; font-size: 15px; }
 
-    .steps { display: flex; gap: 6px; margin: 0 0 16px; }
-    .steps span { flex: 1; height: 6px; border-radius: 3px; background: #e0e0e0; }
+    .steps { display: flex; gap: 6px; margin: 0 0 18px; }
+    .steps span { flex: 1; height: 5px; border-radius: 3px; background: #e2e1de; transition: background .2s ease; }
     .steps span.on { background: #000; }
 
     textarea {
-      width: 100%; padding: 12px; font-size: 16px; border: 1px solid var(--line);
-      border-radius: 10px; min-height: 96px; resize: vertical; background: #fff; color: var(--ink);
+      width: 100%; padding: 13px; font: 16px var(--font); border: 1px solid var(--line);
+      border-radius: 11px; min-height: 100px; resize: vertical; background: #fff; color: var(--ink);
+      transition: border-color .15s ease, box-shadow .15s ease;
     }
-    .radios label { display: flex; align-items: center; gap: 10px; font-weight: 500;
-      padding: 12px; border: 1px solid var(--line); border-radius: 10px; margin: 0 0 8px; }
+    .radios label { display: flex; align-items: center; gap: 10px; font-weight: 500; font-size: 15px;
+      padding: 13px; border: 1px solid var(--line); border-radius: 11px; margin: 0 0 8px; transition: border-color .15s ease; }
+    .radios label:has(input:checked) { border-color: #000; border-width: 1.5px; }
     .radios input { width: 20px; height: 20px; accent-color: #000; }
 
-    .slot { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin: 0 0 12px; }
-    .slot.filled { border: 2px solid #000; }
-    .slot .cap { font-weight: 600; margin: 0 0 8px; display: flex; justify-content: space-between; }
-    .slot .cap .ok { color: #000; font-size: 14px; font-weight: 700; }
-    .slot .cap .ok::before { content: "\2713 "; }   /* ✓ */
-    .slot .cap .need { color: #000; font-size: 14px; }
-    .slot .cap .need::before { content: "\26A0 "; }  /* ⚠ */
-    .thumb { width: 100%; max-height: 220px; object-fit: contain; border-radius: 8px;
-      background: #f0f0f0; display: block; margin: 0 0 8px; filter: grayscale(100%); }
+    .slot { border: 1px solid var(--line); border-radius: 12px; padding: 13px; margin: 0 0 12px; background: #fff; }
+    .slot.filled { border: 1.5px solid #000; }
+    .slot .cap { font-weight: 600; margin: 0 0 9px; display: flex; justify-content: space-between; font-size: 14.5px; }
+    .slot .cap .ok { color: #000; font-size: 13px; font-weight: 700; }
+    .slot .cap .ok::before { content: "\2713 "; }
+    .slot .cap .need { color: var(--muted); font-size: 13px; }
+    .slot .cap .need::before { content: "\26A0 "; }
+    .thumb { width: 100%; max-height: 220px; object-fit: contain; border-radius: 9px;
+      background: #f0f0ee; display: block; margin: 0 0 9px; filter: grayscale(100%); }
     .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .grid2 .slot { margin: 0; }
     .filebtn {
-      display: block; text-align: center; padding: 12px; border: 1px dashed #000;
-      border-radius: 10px; color: #000; font-weight: 600; cursor: pointer;
+      display: block; text-align: center; padding: 13px; border: 1.5px dashed #000;
+      border-radius: 11px; color: #000; font-weight: 600; cursor: pointer; transition: background .15s ease;
     }
+    .filebtn:hover { background: #f4f4f4; }
     .filebtn input { display: none; }
     .rowbtns { display: flex; gap: 12px; margin-top: 8px; }
     .rowbtns button, .rowbtns .btn { flex: 1; }
-    .linkdel { background: none; border: none; color: #000; font-size: 14px; text-decoration: underline;
-      padding: 0; width: auto; display: inline; cursor: pointer; }
+    .linkdel { background: none; border: none; color: #000; font-size: 13.5px; text-decoration: underline;
+      padding: 0; width: auto; display: inline; cursor: pointer; font-family: var(--font); }
     .check-list { margin: 0; padding-left: 20px; color: #000; }
+    .check-list li { margin: 4px 0; }
     .check-ok { color: #000; font-weight: 700; }
     .check-ok::before { content: "\2713 "; }
   </style>
