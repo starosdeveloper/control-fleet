@@ -12,6 +12,10 @@ db.sqlite3-journal
 private_media/
 staticfiles/
 
+# Локальные резервные копии и восстановленные тестовые копии (ТЗ §10)
+/control-fleet-backups/
+/restore_test/
+
 # Прочее
 *.log
 .DS_Store

@@ -328,6 +328,8 @@ fleet/               core domain
   onboardingservice.py  .xlsx read, preview, atomic apply (§7)
   admin.py           raw back office, manager-scoped querysets
   management/commands/seed_demo.py
+  management/commands/backup_manifest.py   table-count snapshot taken before backup (§10)
+  management/commands/verify_restore.py    checks a restored copy against that manifest (§10)
   tests.py
 drivers/             driver cabinet
   views.py           login, session, home, protected file views
@@ -338,11 +340,87 @@ staff/               staff cabinet (§7, §8)
   urls.py
 templates/drivers/   mobile-first templates (≥360px, Russian)
 templates/staff/     staff cabinet templates (dashboard, VIN card, both imports, Russian)
+scripts/              backup.sh, restore.sh (§10)
 docs/                SPEC.md (contracts), ROADMAP.md (stages, Russian)
 ```
+
+## Backups and restore (§10)
+
+```bash
+./scripts/backup.sh          # snapshot DB + private_media into BACKUP_ROOT, rotate to 30
+./scripts/restore.sh         # restore the latest (or a named) backup into ./restore_test
+                              # and verify it — never touches the live DB/media
+```
+
+`BACKUP_ROOT` (default: a sibling directory outside the repo) and
+`BACKUP_KEEP_DAYS` (default 30) are set in `.env`. The DB snapshot uses
+`sqlite3 .backup` (a safe online copy, not a raw file `cp`) or `pg_dump -Fc` for
+PostgreSQL; attachments are tarred with a fixed top-level name so restore doesn't
+need to guess the source server's path. The write is atomic (temp directory,
+renamed only on full success) so a failed run is never picked up by rotation.
+Verification compares the restored copy against a manifest of table row counts
+taken *before* the backup (`backup_manifest`), not against the dump itself —
+otherwise the check would agree with whatever the dump got wrong. It checks two
+independent things: every table's row count, and that every `Attachment` row has
+its file on disk under the restored media root.
+
+### Live server check — backup, restore, and a deliberately broken restore
+
+Raw output from this stand (SQLite, demo data with reports and photos already
+submitted):
+
+```
+$ ./scripts/backup.sh
+backup: start 2026-10-03_134042 -> …/control-fleet-backups/2026-10-03_134042
+manifest: …/manifest.json
+  vehicle: 11  tenant: 3  assignment: 11  manager_assignment: 11  report: 2
+  odometer_reading: 8  maintenance: 5  attachment: 5  import_batch: 2
+backup: sqlite .backup 292K
+backup: media archive 32K
+backup: done -> …/control-fleet-backups/2026-10-03_134042
+backup: pruned 2026-09-01_000001        # rotation proven against 33 fake same-shaped
+backup: pruned 2026-09-01_000002        # backup dirs: oldest 3 dropped, 30 kept,
+backup: pruned 2026-09-01_000003        # the just-made real backup survived
+backup: retained 30 copies
+
+$ ./scripts/restore.sh
+restore: источник …/control-fleet-backups/2026-10-03_134042
+restore: sqlite скопирован -> …/restore_test/db.sqlite3
+restore: вложения распакованы -> …/restore_test/private_media
+OK vehicle: восстановлено 11, манифест 11
+OK tenant: восстановлено 3, манифест 3
+... (all nine tables OK)
+OK файлы вложений: 5/5 найдено на диске
+Восстановление подтверждено: все счётчики и файлы совпали.
+
+# Break 1: delete one Attachment row from the restored copy, re-verify —
+$ sqlite3 restore_test/db.sqlite3 "DELETE FROM fleet_attachment WHERE id=(SELECT id FROM fleet_attachment LIMIT 1);"
+$ manage.py verify_restore --db restore_test/db.sqlite3 --media restore_test/private_media --manifest …/manifest.json
+MISMATCH attachment: восстановлено 4, манифест 5
+CommandError: Восстановление НЕ подтверждено: расхождение таблиц ['attachment'], пропавших файлов 0 из 4.
+$ echo $?
+1
+
+# Break 2: restore clean again, delete one attachment FILE on disk (DB intact) —
+MISMATCH файлы вложений: 4/5 найдено на диске
+  отсутствует: vehicles/000001_TRUCKFLEET0000001/reports/2026-10/report_1/dashboard/763f1b6d….jpg
+CommandError: Восстановление НЕ подтверждено: расхождение таблиц [], пропавших файлов 1 из 5.
+$ echo $?
+1
+```
+
+Both blind spots (a DB row with no file, and a file with no matching DB count)
+are caught independently — neither failure mode hides behind the other.
 
 ## Not yet proven on a stand
 
 - Real phones (Chrome Android / Safari iPhone) — Stage 2 deliverable.
-- PostgreSQL path exercised only via config; local runs use SQLite.
+- PostgreSQL path exercised only via config; local runs use SQLite. `backup.sh`'s
+  `pg_dump` branch is code-complete but untested live (no PostgreSQL on this
+  stand); `restore.sh` deliberately stops and prints instructions instead of
+  attempting an automated `pg_restore` without a test server to target.
 - Performance targets (§10) — not measured yet; no load to measure against.
+- The "lose at most a day, restore within one business day" target (§10) is a
+  statement about how often `backup.sh` runs (e.g. a daily cron job) and how fast
+  someone acts on a failure — not something this repo's code can prove by itself;
+  scheduling it is a deployment step, not a coding one.
