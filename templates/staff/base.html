@@ -5,87 +5,117 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Кабинет сотрудников{% endblock %}</title>
   <style>
+    /* Чёрно-белый интерфейс (требование заказчика). Статус несём не цветом, а
+       заливкой/рамкой/насыщенностью и значком: сплошной чёрный — срочно, жирная
+       рамка — скоро, светло-серый — норма, пунктир — нет данных. */
     :root {
-      --bg: #f4f5f7; --card: #ffffff; --ink: #1b1f24; --muted: #5c6670;
-      --line: #d7dce1; --accent: #1b5e9c; --accent-ink: #ffffff;
-      --green: #1f7a3d; --yellow: #8a6300; --red: #b01919; --gray: #5c6670;
-      --green-bg: #e3f3e8; --yellow-bg: #fcf3d9; --red-bg: #fbe5e5; --gray-bg: #eceff1;
+      --bg: #ffffff; --card: #ffffff; --ink: #111111; --muted: #666666;
+      --line: #cfcfcf; --line-strong: #111111;
+      --accent: #111111; --accent-ink: #ffffff;
+      --zebra: #f6f6f6; --hover: #efefef;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0; background: var(--bg); color: var(--ink);
       font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     }
-    a { color: var(--accent); }
+    a { color: var(--ink); text-underline-offset: 2px; }
+    a:hover { text-decoration: underline; }
+
     header.app {
-      background: var(--accent); color: var(--accent-ink);
+      background: var(--ink); color: var(--accent-ink);
       padding: 12px 20px; display: flex; align-items: center; justify-content: space-between;
-      flex-wrap: wrap; gap: 8px;
+      flex-wrap: wrap; gap: 8px; border-bottom: 2px solid #000;
     }
     header.app .brand { font-weight: 700; letter-spacing: .3px; }
     header.app a { color: var(--accent-ink); }
     header.app form { margin: 0; }
     header.app button {
-      background: transparent; color: var(--accent-ink); border: 1px solid rgba(255,255,255,.6);
+      background: transparent; color: var(--accent-ink); border: 1px solid rgba(255,255,255,.7);
       border-radius: 8px; padding: 7px 12px; font-size: 14px; cursor: pointer;
     }
+    header.app button:hover { background: rgba(255,255,255,.12); }
+
     .wrap { max-width: 1240px; margin: 0 auto; padding: 18px 20px 48px; }
     .card {
-      background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+      background: var(--card); border: 1px solid var(--line); border-radius: 10px;
       padding: 16px 18px; margin: 0 0 18px;
     }
     h1 { font-size: 22px; margin: 0 0 14px; }
     h2 { font-size: 17px; margin: 0 0 12px; }
     h3 { font-size: 15px; margin: 18px 0 8px; }
     .muted { color: var(--muted); }
-    .msg { padding: 11px 14px; border-radius: 10px; margin: 0 0 14px; font-size: 14px; }
-    .msg.error { background: var(--red-bg); color: var(--red); }
-    .msg.success { background: var(--green-bg); color: var(--green); }
 
+    .msg { padding: 11px 14px; border-radius: 8px; margin: 0 0 14px; font-size: 14px;
+      background: #f4f4f4; color: var(--ink); border-left: 4px solid var(--muted); }
+    .msg.error { border-left-color: #000; background: #ededed; font-weight: 600; }
+    .msg.success { border-left-color: #000; background: #f7f7f7; }
+
+    /* Плитки показателей: число чёрное; «срочные» выделены сплошной чёрной
+       полосой слева, «нет данных» — приглушены. */
     .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-    .tile { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+    .tile { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+      padding: 14px 16px; border-left: 4px solid var(--line); }
     .tile .n { font-size: 28px; font-weight: 700; line-height: 1.1; }
     .tile .l { color: var(--muted); font-size: 13px; margin-top: 4px; }
-    .tile.red .n { color: var(--red); }
-    .tile.yellow .n { color: var(--yellow); }
-    .tile.gray .n { color: var(--gray); }
-    .tile.green .n { color: var(--green); }
+    .tile.red { border-left-color: #000; }
+    .tile.red .n { color: #000; }
+    .tile.yellow { border-left-color: #666; }
+    .tile.green { border-left-color: #bbb; }
+    .tile.gray .n { color: var(--muted); }
 
     .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin: 0 0 14px; }
     .toolbar .fld { display: flex; flex-direction: column; gap: 4px; }
     .toolbar label { font-size: 12px; color: var(--muted); }
-    select, input[type=text], input[type=number] {
-      padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; font-size: 14px; background: #fff;
-    }
-    .btn {
-      display: inline-block; padding: 9px 14px; border-radius: 9px; border: 1px solid var(--accent);
-      background: var(--accent); color: var(--accent-ink); font-size: 14px; font-weight: 600;
-      cursor: pointer; text-decoration: none; text-align: center;
-    }
-    .btn.secondary { background: transparent; color: var(--accent); }
+    select, input[type=text], input[type=number], input[type=file], input[type=password] {
+      padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 14px;
+      background: #fff; color: var(--ink); }
+    select:focus, input:focus { outline: 2px solid #000; outline-offset: -1px; border-color: #000; }
+
+    .btn { display: inline-block; padding: 9px 14px; border-radius: 8px; border: 1px solid #000;
+      background: #000; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer;
+      text-decoration: none; text-align: center; }
+    .btn:hover { background: #333; text-decoration: none; }
+    .btn.secondary { background: #fff; color: #000; border-color: var(--line); }
+    .btn.secondary:hover { background: var(--hover); }
     .btn.small { padding: 6px 10px; font-size: 13px; }
-    .btn.danger { background: var(--red); border-color: var(--red); }
+    .btn.danger { background: #fff; color: #000; border: 2px solid #000; }
+    .btn.danger:hover { background: #000; color: #fff; }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
 
     .scroll { overflow-x: auto; }
     table.grid { border-collapse: collapse; width: 100%; font-size: 13px; }
-    table.grid th, table.grid td { border-bottom: 1px solid var(--line); padding: 8px 9px; text-align: left; white-space: nowrap; }
-    table.grid th { background: #eef2f6; position: sticky; top: 0; font-weight: 600; }
-    table.grid tr:hover td { background: #f8fafc; }
+    table.grid th, table.grid td { border-bottom: 1px solid var(--line); padding: 8px 9px;
+      text-align: left; white-space: nowrap; }
+    table.grid th { background: #ececec; position: sticky; top: 0; font-weight: 700;
+      border-bottom: 2px solid #000; }
+    table.grid tbody tr:nth-child(even) td { background: var(--zebra); }
+    table.grid tbody tr:hover td { background: var(--hover); }
     .num { text-align: right; font-variant-numeric: tabular-nums; }
 
-    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
-    .pill.green  { background: var(--green-bg);  color: var(--green); }
-    .pill.yellow { background: var(--yellow-bg); color: var(--yellow); }
-    .pill.red    { background: var(--red-bg);    color: var(--red); }
-    .pill.gray   { background: var(--gray-bg);   color: var(--gray); }
-    .flag { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 6px; background: var(--yellow-bg); color: var(--yellow); margin-left: 4px; }
+    /* Статус-метки без цвета: значок + заливка/рамка задают срочность. */
+    .pill { display: inline-block; padding: 2px 9px 2px 7px; border-radius: 999px;
+      font-size: 12px; font-weight: 600; border: 1px solid var(--line); background: #fff; color: #111; }
+    .pill::before { font-weight: 700; margin-right: 5px; }
+    .pill.green  { background: #f2f2f2; color: #444; border-color: #ddd; }
+    .pill.green::before  { content: "\25CB"; }             /* ○ норма */
+    .pill.yellow { background: #fff; color: #000; border: 1.5px solid #000; font-weight: 700; }
+    .pill.yellow::before { content: "\25D1"; }             /* ◑ скоро */
+    .pill.red    { background: #000; color: #fff; border-color: #000; }
+    .pill.red::before    { content: "\25CF"; }             /* ● срочно */
+    .pill.gray   { background: #fff; color: #777; border: 1px dashed #aaa; }
+    .pill.gray::before   { content: "\2013"; }             /* – нет данных */
+
+    .flag { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 6px;
+      background: #000; color: #fff; margin-left: 4px; font-weight: 700; }
 
     dl.kv { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; }
     dl.kv dt { color: var(--muted); }
     dl.kv dd { margin: 0; font-weight: 600; }
 
     .thumbs { display: flex; flex-wrap: wrap; gap: 8px; }
-    .thumbs a img { height: 92px; border-radius: 8px; border: 1px solid var(--line); display: block; }
+    .thumbs a img { height: 92px; border-radius: 8px; border: 1px solid var(--line); display: block;
+      filter: grayscale(100%); }
     .report { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin: 0 0 12px; }
     .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
     .actions form { display: flex; gap: 6px; align-items: center; margin: 0; }

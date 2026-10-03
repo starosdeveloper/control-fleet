@@ -8,9 +8,13 @@ fleet-wide indicators.
 
 Built on Django + server-rendered HTML templates + a little JavaScript,
 PostgreSQL in production (SQLite for local development), closed file storage on
-the server. Timezone `Europe/Moscow`. See [`docs/SPEC.md`](docs/SPEC.md) for the
-data contracts and [`docs/ROADMAP.md`](docs/ROADMAP.md) (Russian) for stage
-criteria and what is still open.
+the server. Timezone `Europe/Moscow`. The interface is black-and-white (client
+requirement): maintenance status is conveyed by glyph, fill and border weight
+rather than hue — solid black "●" = act now, bold outline "◑" = soon, light-gray
+"○" = ok, dashed "–" = no data — so it stays legible without color. See
+[`docs/SPEC.md`](docs/SPEC.md) for the data contracts and
+[`docs/ROADMAP.md`](docs/ROADMAP.md) (Russian) for stage criteria and what is still
+open.
 
 ## Current state — Stages 1–3 done, Stage 4 GPS import done
 

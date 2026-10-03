@@ -31,7 +31,7 @@
       </label>
     </div>
     <div class="field">
-      <label>Комментарий <span id="cmt-req" style="color:var(--red);display:{% if draft.defects == 'has' %}inline{% else %}none{% endif %}">— обязателен при замечаниях</span></label>
+      <label>Комментарий <span id="cmt-req" style="color:#000;font-weight:600;display:{% if draft.defects == 'has' %}inline{% else %}none{% endif %}">— обязателен при замечаниях</span></label>
       <textarea name="comment" maxlength="2000">{{ draft.comment }}</textarea>
       <p class="hint">До 2000 символов.</p>
     </div>
