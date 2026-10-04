@@ -45,6 +45,12 @@ ALLOWED_HOSTS = [
     if h.strip()
 ]
 
+# Vercel sets VERCEL_URL to the deployment hostname (without a scheme).
+# Add it explicitly so Django keeps host validation enabled on previews.
+_VERCEL_URL = os.environ.get("VERCEL_URL", "").strip()
+if _VERCEL_URL and _VERCEL_URL not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(_VERCEL_URL)
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -145,7 +151,7 @@ SESSION_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SAMESITE = "Lax"
 X_FRAME_OPTIONS = "DENY"
 
-_SECURE = _env_bool("DJANGO_SECURE_SSL", False)
+_SECURE = _env_bool("DJANGO_SECURE_SSL", bool(os.environ.get("VERCEL")))
 SESSION_COOKIE_SECURE = _SECURE
 CSRF_COOKIE_SECURE = _SECURE
 SECURE_SSL_REDIRECT = _SECURE
