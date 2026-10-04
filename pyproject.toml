@@ -2,6 +2,14 @@
 name = "control-fleet"
 version = "0.1.0"
 requires-python = ">=3.12"
+dependencies = [
+    "Django==6.0.8",
+    "psycopg[binary]==3.3.6",
+    "openpyxl==3.1.5",
+    "Pillow==12.3.0",
+    "pillow-heif==1.8.0",
+    "python-dotenv==1.2.4",
+]
 
 [tool.vercel.scripts]
 build = "python manage.py migrate --noinput && python manage.py seed_demo"
