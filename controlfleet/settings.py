@@ -45,11 +45,17 @@ ALLOWED_HOSTS = [
     if h.strip()
 ]
 
-# Vercel sets VERCEL_URL to the deployment hostname (without a scheme).
-# Add it explicitly so Django keeps host validation enabled on previews.
-_VERCEL_URL = os.environ.get("VERCEL_URL", "").strip()
-if _VERCEL_URL and _VERCEL_URL not in ALLOWED_HOSTS:
-    ALLOWED_HOSTS.append(_VERCEL_URL)
+# Vercel sets a deployment hostname, branch hostname, and project production
+# hostname. Add configured values explicitly so host validation stays enabled
+# for preview deployments and the stable project alias.
+for _vercel_host_var in (
+    "VERCEL_URL",
+    "VERCEL_BRANCH_URL",
+    "VERCEL_PROJECT_PRODUCTION_URL",
+):
+    _vercel_host = os.environ.get(_vercel_host_var, "").strip()
+    if _vercel_host and _vercel_host not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(_vercel_host)
 
 INSTALLED_APPS = [
     "django.contrib.admin",
