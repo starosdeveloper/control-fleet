@@ -128,10 +128,15 @@ python manage.py runserver
 
 ### Production (PostgreSQL)
 
-Set in `.env`: `DB_ENGINE=postgres`, the `DB_*` credentials, a real
+Set in `.env`: either `DATABASE_URL` (a PostgreSQL connection URL) or
+`DB_ENGINE=postgres` plus the `DB_*` credentials, a real
 `DJANGO_SECRET_KEY`, `DJANGO_DEBUG=0`, `DJANGO_ALLOWED_HOSTS=your.domain`,
 `DJANGO_SECURE_SSL=1`, and `PRIVATE_MEDIA_ROOT` pointing outside the web root.
 The server and backups must be located in Russia (project requirement, §2).
+
+On Vercel, connect a PostgreSQL integration that supplies `DATABASE_URL`.
+Vercel runs Django migrations and the idempotent `seed_demo` command during each
+deployment build so the demonstration login is available on the deployed site.
 
 ## Tests
 

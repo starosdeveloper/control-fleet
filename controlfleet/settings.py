@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import secrets
 from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlparse
 
 from dotenv import load_dotenv
 
@@ -100,7 +101,32 @@ WSGI_APPLICATION = "controlfleet.wsgi.application"
 
 # --- База данных --------------------------------------------------------------
 
-if os.environ.get("DB_ENGINE", "sqlite").strip().lower() == "postgres":
+DATABASE_URL = (
+    os.environ.get("DATABASE_URL")
+    or os.environ.get("DATABASE_POSTGRES_URL")
+    or ""
+).strip()
+if DATABASE_URL:
+    parsed_database_url = urlparse(DATABASE_URL)
+    if parsed_database_url.scheme not in {"postgres", "postgresql"}:
+        raise RuntimeError("DATABASE_URL должен использовать схему postgres:// или postgresql://.")
+    database_query = parse_qs(parsed_database_url.query)
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": unquote(parsed_database_url.path.lstrip("/")),
+            "USER": unquote(parsed_database_url.username or ""),
+            "PASSWORD": unquote(parsed_database_url.password or ""),
+            "HOST": parsed_database_url.hostname or "",
+            "PORT": str(parsed_database_url.port or 5432),
+            "OPTIONS": {
+                "sslmode": database_query.get("sslmode", ["require"])[0],
+            },
+            "CONN_MAX_AGE": 60,
+            "CONN_HEALTH_CHECKS": True,
+        }
+    }
+elif os.environ.get("DB_ENGINE", "sqlite").strip().lower() == "postgres":
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
